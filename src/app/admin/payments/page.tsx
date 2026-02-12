@@ -297,17 +297,16 @@ export default function PaymentsPage() {
         {/* Matching Image Style: Minimalist Search & Filter Bar */}
         <div className="bg-slate-50/80 backdrop-blur-sm p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-100 flex flex-wrap items-center gap-3 sm:gap-4 mb-2">
             {/* Search Box */}
-            <div className="relative flex-1 min-w-[200px] sm:min-w-[280px]">
+            <div className="relative flex-1 min-w-[200px] md:max-w-[300px] group">
                 <input 
                     type="text" 
                     placeholder="Search..." 
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-5 pr-10 py-2.5 sm:pl-6 sm:pr-12 sm:py-3.5 rounded-xl sm:rounded-2xl bg-white border border-slate-100 text-slate-600 font-bold text-xs sm:text-sm placeholder:text-slate-400 outline-none transition-all shadow-sm"
+                    className="w-full pl-5 pr-12 py-3 rounded-[1.25rem] bg-white border border-slate-100 text-slate-600 font-bold text-xs sm:text-sm placeholder:text-slate-400 outline-none transition-all shadow-sm focus:border-blue-400 focus:ring-4 focus:ring-blue-500/5"
                 />
-                <div className="absolute inset-y-0 right-4 sm:right-5 flex items-center pointer-events-none">
-                    <Search className="text-slate-400 sm:hidden" size={16} />
-                    <Search className="text-slate-400 hidden sm:block" size={20} />
+                <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
+                    <Search className="text-slate-400 group-focus-within:text-blue-600 transition-colors" size={20} />
                 </div>
             </div>
 

@@ -206,7 +206,7 @@ export default function TermsPage() {
                 }
             );
 
-            alert("Session Transfer Complete!");
+            alert("Term Transfer Complete!");
             setShowRollover(false);
         } catch (error) {
             console.error(error);
@@ -266,11 +266,11 @@ export default function TermsPage() {
                     <Calendar size={22} />
                 </div>
                 <div>
-                    <h1 className="text-2xl font-black text-slate-900 tracking-tight">Academic Sessions</h1>
+                    <h1 className="text-2xl font-black text-slate-900 tracking-tight">Academic Terms</h1>
                     <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Term Management</span>
                         <div className="w-1 h-1 rounded-full bg-slate-200"></div>
-                        <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">{terms.length} Total Sessions</span>
+                        <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">{terms.length} Total Terms</span>
                     </div>
                 </div>
             </div>
@@ -279,7 +279,7 @@ export default function TermsPage() {
                 className="flex items-center justify-center gap-2 px-6 py-3.5 bg-indigo-600 text-white rounded-[1.25rem] font-black text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 transform hover:-translate-y-0.5"
             >
                 <Plus size={18} />
-                <span>New Session</span>
+                <span>New Term</span>
             </button>
         </div>
 
@@ -316,7 +316,7 @@ export default function TermsPage() {
                             onChange={(e) => setFilterStatus(e.target.value as any)}
                             className="w-full pl-12 pr-10 py-3 bg-white/70 border border-slate-200/80 rounded-2xl text-xs font-black text-slate-700 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100/50 transition-all appearance-none cursor-pointer hover:bg-white shadow-sm"
                         >
-                            <option value="all">All Session States</option>
+                            <option value="all">All Term Statuses</option>
                             <option value="active">Active Now</option>
                             <option value="inactive">Previous & Upcoming</option>
                         </select>
@@ -346,7 +346,7 @@ export default function TermsPage() {
                                         {editTerm ? "Edit Term" : "Add Term"}
                                     </h2>
                                     <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">
-                                        {editTerm ? "Update details" : "Create new session"}
+                                        {editTerm ? "Update details" : "Create new term"}
                                     </p>
                                 </div>
                             </div>
@@ -398,7 +398,7 @@ export default function TermsPage() {
                                                 className="w-5 h-5 rounded-lg border-2 border-blue-200 text-blue-600 focus:ring-blue-500 rounded focus:ring-offset-0"
                                             />
                                             <label htmlFor="rollover" className="text-xs font-bold text-slate-600 cursor-pointer select-none">
-                                                Bring students from the last session?
+                                                Bring students from the last term?
                                                 <p className="text-[10px] text-slate-400 font-normal mt-0.5">Students will start as <span className="text-rose-500 font-black tracking-widest uppercase">"Unpaid"</span> for the new term.</p>
                                             </label>
                                         </div>
@@ -535,11 +535,11 @@ export default function TermsPage() {
                 ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {filteredTerms.map(term => (
-                                <div 
-                                    key={term.term_id} 
-                                    className="group relative bg-white border border-slate-200/60 rounded-[2.25rem] p-7 shadow-[0_4px_20px_rgb(0,0,0,0.03)] hover:shadow-[0_20px_50px_rgba(79,70,229,0.1)] hover:scale-[1.02] hover:border-indigo-200 transition-all duration-500 overflow-hidden cursor-pointer active:scale-95"
-                                    onClick={() => router.push(`/admin/attendance/terms/${term.term_id}/classes`)}
-                                >
+                                    <div 
+                                        key={term.term_id} 
+                                        className="group relative bg-white border border-slate-200/60 rounded-[1.25rem] p-7 shadow-[0_4px_20px_rgb(0,0,0,0.03)] hover:shadow-[0_20px_50px_rgba(79,70,229,0.1)] hover:scale-[1.02] hover:border-indigo-200 transition-all duration-500 overflow-hidden cursor-pointer active:scale-95"
+                                        onClick={() => router.push(`/admin/attendance/terms/${term.term_id}/classes`)}
+                                    >
                                 {/* Premium Background Accent */}
                                 <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-indigo-500/5 to-purple-500/5 rounded-bl-[4rem] group-hover:from-indigo-500/10 group-hover:to-purple-500/10 transition-colors" />
 
@@ -551,7 +551,7 @@ export default function TermsPage() {
                                         : 'bg-slate-50 text-slate-400 border-slate-100'
                                     }`}>
                                         <div className={`w-1.5 h-1.5 rounded-full ${isTermActive(term) ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
-                                        {isTermActive(term) ? 'Active Session' : 'Offline'}
+                                        {isTermActive(term) ? 'Active Term' : 'Offline'}
                                     </div>
 
                                     <div className="flex items-center gap-1.5">
@@ -591,7 +591,7 @@ export default function TermsPage() {
 
                                     <div className="flex items-center gap-4 py-4 border-y border-slate-100/80">
                                         <div className="flex-1">
-                                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 leading-none">Primary Branch</p>
+                                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 leading-none">Branch</p>
                                             <div className="flex items-center gap-2 text-sm font-black text-slate-700">
                                                 <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-500">
                                                     <Building2 size={16} />
@@ -602,7 +602,7 @@ export default function TermsPage() {
                                     </div>
 
                                     <div>
-                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 leading-none">Curricula Scope</p>
+                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 leading-none">Program</p>
                                         <div className="flex flex-wrap gap-1.5">
                                             {term.program_ids && term.program_ids.length > 0 ? (
                                                 term.program_ids.slice(0, 3).map(pid => (
@@ -637,7 +637,7 @@ export default function TermsPage() {
                                                     className="w-full flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl bg-indigo-600 text-white font-black text-[10px] uppercase tracking-[0.15em] hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all hover:-translate-y-0.5"
                                                 >
                                                     <CalendarCheck size={16} />
-                                                    <span>Move students to new session</span>
+                                                    <span>Move students to new term</span>
                                                 </button>
                                             </div>
                                         );
@@ -656,7 +656,7 @@ export default function TermsPage() {
                     <div className="bg-white w-full max-w-lg rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                         {/* Header */}
                         <div className="px-8 py-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                            <h2 className="text-xl font-black text-slate-800">Move Students to New Session</h2>
+                            <h2 className="text-xl font-black text-slate-800">Move Students to New Term</h2>
                             <button onClick={() => setShowRollover(false)} className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400"><X size={20} /></button>
                         </div>
 

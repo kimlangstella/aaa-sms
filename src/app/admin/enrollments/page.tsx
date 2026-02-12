@@ -976,17 +976,18 @@ export default function EnrollmentsPage() {
                {/* Search and Filters Toolbar */}
                <div className="flex flex-wrap items-center gap-3 sm:gap-4 bg-slate-50 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-100">
                    {/* Search */}
-                   <div className="relative w-full md:w-[310px]">
-                       <input
-                           type="text"
-                           placeholder="Search..."
-                           value={searchQuery}
-                           onChange={(e) => setSearchQuery(e.target.value)}
-                           className="w-full pl-5 pr-10 py-2.5 sm:pl-6 sm:pr-12 sm:py-3 bg-white border border-slate-200 rounded-full font-bold text-xs sm:text-sm text-slate-700 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all placeholder:text-slate-400 shadow-sm"
-                       />
-                       <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} className="sm:hidden" />
-                       <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hidden sm:block" size={18} />
-                   </div>
+                    <div className="relative w-full md:w-[300px] group">
+                        <input
+                            type="text"
+                            placeholder="Search..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-5 pr-12 py-3 bg-white border border-slate-200 rounded-[1.25rem] font-bold text-xs sm:text-sm text-slate-700 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/5 transition-all placeholder:text-slate-400 shadow-sm"
+                        />
+                        <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
+                            <Search className="text-slate-400 group-focus-within:text-indigo-600 transition-colors" size={20} />
+                        </div>
+                    </div>
 
                    <div className="flex flex-wrap items-center gap-3">
                        {/* Branch Filter */}

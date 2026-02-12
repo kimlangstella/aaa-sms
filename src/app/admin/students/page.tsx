@@ -416,17 +416,16 @@ export default function StudentsPage() {
                 <div className="flex flex-col lg:flex-row items-center justify-between gap-4 sm:gap-6">
                     
                     {/* Left: Search Bar */}
-                    <div className="relative w-full lg:max-w-xl group">
+                    <div className="relative w-full md:max-w-[300px] group">
                         <input
                             type="text"
-                            placeholder="Search students by name, ID or phone..."
-                            className="w-full pl-6 pr-12 py-3 sm:pl-8 sm:pr-16 sm:py-4 bg-white border border-slate-200 rounded-full text-xs sm:text-sm font-bold placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-300 transition-all shadow-sm"
+                            placeholder="Search..."
+                            className="w-full pl-6 pr-12 py-3.5 sm:pl-8 sm:pr-14 sm:py-4 bg-white border border-slate-200 rounded-[1.25rem] text-xs sm:text-sm font-bold placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-300 transition-all shadow-sm"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
                         <div className="absolute inset-y-0 right-5 sm:right-6 flex items-center pointer-events-none">
-                            <Search size={18} className="text-slate-400 group-focus-within:text-indigo-600 transition-colors sm:hidden" />
-                            <Search size={22} className="text-slate-400 group-focus-within:text-indigo-600 transition-colors hidden sm:block" />
+                            <Search size={22} className="text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
                         </div>
                     </div>
 

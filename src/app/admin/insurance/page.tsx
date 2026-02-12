@@ -131,14 +131,14 @@ export default function InsurancePage() {
       <div className="bg-white/60 backdrop-blur-md p-6 rounded-[2rem] border border-white/50 shadow-sm transition-all duration-300">
           <div className="flex flex-col md:flex-row items-center gap-6">
              {/* Custom Rounded Search UI */}
-             <div className="relative group flex-1 w-full md:max-w-md">
+             <div className="relative group flex-1 w-full md:max-w-[300px]">
                 <input 
-                    placeholder="Search students, insurance ID..." 
+                    placeholder="Search..." 
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-8 pr-16 py-3.5 bg-white border border-slate-200 rounded-full text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all placeholder:text-slate-400 shadow-sm" 
+                    className="w-full pl-6 pr-12 py-3.5 bg-white border border-slate-200 rounded-[1.25rem] text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all placeholder:text-slate-400 shadow-sm" 
                 />
-                <div className="absolute inset-y-0 right-6 flex items-center pointer-events-none">
+                <div className="absolute inset-y-0 right-5 flex items-center pointer-events-none">
                     <Search className="text-slate-400 group-focus-within:text-indigo-600 transition-colors" size={20} />
                 </div>
              </div>

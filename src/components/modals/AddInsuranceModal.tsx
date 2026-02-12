@@ -124,17 +124,18 @@ export function AddInsuranceModal({ studentId: propStudentId, isOpen, onClose, o
                     <div className="space-y-4 mb-4">
                         <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl">
                             <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Select Student First</h4>
-                             <div className="relative flex items-center bg-white border border-slate-200 rounded-xl px-2 shadow-sm focus-within:ring-4 focus-within:ring-emerald-500/10 transition-all mb-4">
-                                <Search className="text-slate-400 ml-2" size={18} />
-                                <div className="w-px h-5 bg-slate-200 mx-3" />
+                             <div className="relative group mb-4">
                                 <input 
                                     type="text"
                                     placeholder="Search student name..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-slate-700 placeholder:text-slate-400 py-3"
+                                    className="w-full pl-5 pr-12 py-3 bg-white border border-slate-200 rounded-[1.25rem] text-sm font-bold text-slate-700 placeholder:text-slate-400 outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all shadow-sm"
                                     autoFocus
                                 />
+                                <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
+                                    <Search className="text-slate-400 group-focus-within:text-emerald-500 transition-colors" size={18} />
+                                </div>
                              </div>
 
                              {/* Embedded Results (Only show if searching) */}

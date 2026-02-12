@@ -728,17 +728,16 @@ export default function TrackAttendancePage() {
             <div className="bg-white/60 backdrop-blur-md p-4 sm:p-6 rounded-2xl sm:rounded-[2.5rem] border border-white/50 shadow-sm transition-all duration-300">
                 <div className="flex flex-col xl:flex-row items-center gap-4 sm:gap-6 mb-4 sm:mb-8">
                     {/* Search Bar */}
-                    <div className="flex-1 w-full max-w-2xl group relative">
+                    <div className="flex-1 w-full md:max-w-[300px] group relative">
                         <input
                             type="text"
-                            placeholder="Search students by name or ID..."
+                            placeholder="Search..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-6 pr-12 py-3 sm:pl-8 sm:pr-16 sm:py-4 bg-white border border-slate-200 rounded-full text-xs sm:text-sm font-bold text-slate-700 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all placeholder:text-slate-400 shadow-sm"
+                            className="w-full pl-6 pr-12 py-3.5 bg-white border border-slate-200 rounded-[1.25rem] text-xs sm:text-sm font-bold text-slate-700 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all placeholder:text-slate-400 shadow-sm"
                         />
-                        <div className="absolute inset-y-0 right-5 sm:right-6 flex items-center pointer-events-none">
-                            <Search className="text-slate-400 sm:hidden" size={18} />
-                            <Search className="text-slate-400 group-focus-within:text-indigo-600 transition-colors hidden sm:block" size={22} />
+                        <div className="absolute inset-y-0 right-5 flex items-center pointer-events-none">
+                            <Search className="text-slate-400 group-focus-within:text-indigo-600 transition-colors" size={22} />
                         </div>
                     </div>
                     
