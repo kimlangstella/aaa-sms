@@ -367,8 +367,8 @@ export default function StudentsPage() {
             
             {/* Header Area */}
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-white/40 backdrop-blur-md p-5 sm:p-8 rounded-2xl sm:rounded-[2.5rem] border border-white/50 shadow-sm transition-all duration-300">
-                 <div className="flex items-center gap-4 sm:gap-5">
-                    <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-xl sm:rounded-[1.5rem] bg-indigo-600 flex items-center justify-center text-white shadow-xl shadow-indigo-100 shrink-0">
+                <div className="flex items-center gap-4 sm:gap-5">
+                    <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-[1.25rem] bg-indigo-600 flex items-center justify-center text-white shadow-xl shadow-indigo-100 shrink-0">
                         <Users size={20} className="sm:hidden" />
                         <Users size={32} className="hidden sm:block" />
                     </div>
@@ -386,7 +386,7 @@ export default function StudentsPage() {
                  <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                     <button
                         onClick={handleExport}
-                        className="p-3 sm:p-3.5 bg-white text-slate-500 rounded-xl sm:rounded-2xl hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all border border-slate-100 shadow-sm hover:shadow-lg active:scale-95 group"
+                        className="p-3 sm:p-3.5 bg-white text-slate-500 rounded-[1.25rem] hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all border border-slate-100 shadow-sm hover:shadow-lg active:scale-95 group"
                         title="Export Report"
                     >
                         <Download size={18} className="sm:hidden" />
@@ -394,7 +394,7 @@ export default function StudentsPage() {
                     </button>
                     <button
                         onClick={() => setShowImportModal(true)}
-                        className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-3 sm:px-6 sm:py-3.5 bg-white text-slate-700 rounded-xl sm:rounded-2xl font-black text-xs sm:text-sm hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 transition-all border border-slate-100 shadow-sm hover:shadow-lg active:scale-95 group"
+                        className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-3 sm:px-6 sm:py-3.5 bg-white text-slate-700 rounded-[1.25rem] font-black text-xs sm:text-sm hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 transition-all border border-slate-100 shadow-sm hover:shadow-lg active:scale-95 group"
                     >
                         <Download size={18} className="rotate-180 text-slate-400 group-hover:text-indigo-600 transition-colors sm:hidden" />
                         <Download size={20} className="rotate-180 text-slate-400 group-hover:text-indigo-600 transition-colors hidden sm:block" />
@@ -402,7 +402,7 @@ export default function StudentsPage() {
                     </button>
                     <button
                         onClick={() => router.push('/admin/students/add')}
-                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3.5 sm:px-8 bg-indigo-600 text-white rounded-xl sm:rounded-2xl font-black text-xs sm:text-sm hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all hover:-translate-y-0.5 active:scale-95"
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3.5 sm:px-8 bg-indigo-600 text-white rounded-[1.25rem] font-black text-xs sm:text-sm hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all hover:-translate-y-0.5 active:scale-95"
                     >
                         <UserPlus size={18} className="sm:hidden" />
                         <UserPlus size={20} className="hidden sm:block" />
@@ -413,28 +413,25 @@ export default function StudentsPage() {
 
             {/* Toolbar Area */}
             <div className="bg-white/60 backdrop-blur-md p-4 sm:p-6 rounded-2xl sm:rounded-[2.5rem] border border-white/50 shadow-sm transition-all duration-300 relative z-30">
-                <div className="flex flex-col lg:flex-row items-center justify-between gap-4 sm:gap-6">
-                    
-                    {/* Left: Search Bar */}
-                    <div className="relative w-full md:max-w-[300px] group">
-                        <input
-                            type="text"
-                            placeholder="Search..."
-                            className="w-full pl-6 pr-12 py-3.5 sm:pl-8 sm:pr-14 sm:py-4 bg-white border border-slate-200 rounded-[1.25rem] text-xs sm:text-sm font-bold placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-300 transition-all shadow-sm"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                        />
-                        <div className="absolute inset-y-0 right-5 sm:right-6 flex items-center pointer-events-none">
-                            <Search size={22} className="text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
+                    {/* Left: Search Bar & View Controls */}
+                    <div className="flex flex-wrap items-center gap-3 w-full">
+                        <div className="relative w-full md:max-w-[300px] group">
+                            <input
+                                type="text"
+                                placeholder="Search..."
+                                className="w-full pl-6 pr-12 py-3.5 sm:pl-8 sm:pr-14 sm:py-4 bg-white border border-slate-200 rounded-[1.25rem] text-xs sm:text-sm font-bold placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-300 transition-all shadow-sm"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                            />
+                            <div className="absolute inset-y-0 right-5 sm:right-6 flex items-center pointer-events-none">
+                                <Search size={22} className="text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
+                            </div>
                         </div>
-                    </div>
 
-                    {/* Right: View Controls */}
-                    <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
                         <div className="relative flex-1 sm:flex-initial">
                             <button 
                                 onClick={() => setShowFilterPanel(!showFilterPanel)}
-                                className={`w-full flex items-center justify-center gap-3 px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all border ${
+                                className={`w-full flex items-center justify-center gap-3 px-8 py-4 rounded-[1.25rem] font-black text-xs uppercase tracking-widest transition-all border ${
                                     showFilterPanel || filterBranch || filterStatus || filterPaymentStatus
                                     ? 'bg-indigo-600 text-white border-indigo-500 shadow-xl shadow-indigo-100'
                                     : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50'
@@ -454,8 +451,8 @@ export default function StudentsPage() {
                             {/* Filter Popup */}
                             {showFilterPanel && (
                                 <>
-                                    <div className="fixed inset-0 z-20" onClick={() => setShowFilterPanel(false)} />
-                                    <div className="absolute top-full right-0 mt-4 w-72 bg-white/90 backdrop-blur-xl border border-white/50 rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.1)] z-30 p-2 animate-in fade-in zoom-in-95 duration-200 overflow-hidden">
+                                    <div className="fixed inset-0 z-40" onClick={() => setShowFilterPanel(false)} />
+                                    <div className="absolute top-full left-0 mt-4 w-72 bg-white border border-slate-100 rounded-[1.25rem] shadow-[0_20px_50px_rgba(0,0,0,0.1)] z-50 p-2 animate-in fade-in zoom-in-95 duration-200 overflow-hidden">
                                         <div className="max-h-[450px] overflow-y-auto custom-scrollbar p-2">
                                             {/* Status Section */}
                                             <div className="mb-4">
@@ -526,7 +523,7 @@ export default function StudentsPage() {
                         <div className="relative flex-1 sm:flex-initial">
                             <button 
                                 onClick={() => setShowColumnPanel(!showColumnPanel)}
-                                className="w-full flex items-center justify-center gap-3 px-8 py-4 bg-white text-slate-500 rounded-2xl font-black text-xs uppercase tracking-widest transition-all border border-slate-100 hover:bg-slate-50 shadow-sm"
+                                className="w-full flex items-center justify-center gap-3 px-8 py-4 bg-white text-slate-500 rounded-[1.25rem] font-black text-xs uppercase tracking-widest transition-all border border-slate-100 hover:bg-slate-50 shadow-sm"
                             >
                                 <Settings2 size={18} />
                                 <span>Columns</span>
@@ -535,8 +532,8 @@ export default function StudentsPage() {
                             {/* Column Popup */}
                             {showColumnPanel && (
                                 <>
-                                    <div className="fixed inset-0 z-20" onClick={() => setShowColumnPanel(false)} />
-                                    <div className="absolute top-full right-0 mt-4 w-72 bg-white/90 backdrop-blur-xl border border-white/50 rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.1)] z-30 p-2 animate-in fade-in zoom-in-95 duration-200 overflow-hidden">
+                                    <div className="fixed inset-0 z-40" onClick={() => setShowColumnPanel(false)} />
+                                    <div className="absolute top-full left-0 mt-4 w-72 bg-white border border-slate-100 rounded-[1.25rem] shadow-[0_20px_50px_rgba(0,0,0,0.1)] z-50 p-2 animate-in fade-in zoom-in-95 duration-200 overflow-hidden">
                                          <div className="max-h-[450px] overflow-y-auto custom-scrollbar p-2 space-y-1">
                                             <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-3 mb-2">Display Columns</h4>
                                             {ALL_COLUMNS.map(col => (
@@ -557,11 +554,10 @@ export default function StudentsPage() {
                              )}
                         </div>
                     </div>
-                </div>
             </div>
 
             {/* Table Area */}
-            <div className="bg-white/80 backdrop-blur-md rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/50 overflow-hidden transition-all duration-300">
+            <div className="bg-white rounded-[1.25rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 overflow-hidden transition-all duration-300">
                 <div className="overflow-x-auto min-h-[400px] custom-scrollbar">
                     <table className="w-full text-left border-collapse">
                         <thead>
@@ -628,7 +624,7 @@ export default function StudentsPage() {
                                                             e.stopPropagation();
                                                             setActiveActionId(activeActionId === student.student_id ? null : student.student_id);
                                                         }}
-                                                        className="p-2 rounded-xl hover:bg-white hover:shadow-md text-slate-400 hover:text-indigo-600 transition-all"
+                                                        className="p-2 rounded-[1.25rem] hover:bg-white hover:shadow-md text-slate-400 hover:text-indigo-600 transition-all"
                                                     >
                                                         <MoreVertical size={18} />
                                                     </button>
@@ -636,10 +632,10 @@ export default function StudentsPage() {
                                                     {activeActionId === student.student_id && (
                                                         <>
                                                             <div 
-                                                                className="fixed inset-0 z-20" 
+                                                                className="fixed inset-0 z-40" 
                                                                 onClick={() => setActiveActionId(null)}
                                                             />
-                                                            <div className="absolute left-0 bottom-full mb-2 flex items-center gap-1 bg-white rounded-xl shadow-xl border border-slate-100 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-200">
+                                                            <div className="absolute left-0 bottom-full mb-2 flex items-center gap-1 bg-white rounded-[1.25rem] shadow-xl border border-slate-100 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-200">
                                                                 <button
                                                                     onClick={() => router.push(`/admin/students/${student.student_id}`)}
                                                                     className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
@@ -836,7 +832,7 @@ export default function StudentsPage() {
             {/* Floating Selection Bar */}
             {selectedStudents.size > 0 && (
                 <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-10 duration-500">
-                    <div className="bg-slate-900 text-white px-8 py-5 rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.3)] flex items-center gap-8 backdrop-blur-xl border border-white/10">
+                    <div className="bg-slate-900 text-white px-8 py-5 rounded-[1.25rem] shadow-[0_20px_50px_rgba(0,0,0,0.3)] flex items-center gap-8 backdrop-blur-xl border border-white/10">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-2xl bg-indigo-500 flex items-center justify-center text-white font-black">
                                 {selectedStudents.size}

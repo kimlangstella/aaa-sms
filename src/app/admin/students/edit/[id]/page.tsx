@@ -207,7 +207,7 @@ export default function EditStudentPage() {
                             </Select>
 
                             <Input label="Date of Birth" name="dob" type="date" defaultValue={student.dob} required />
-                            <Input label="Place of Birth" name="pob" defaultValue={student.pob} required />
+                            <Input label="Place of Birth" name="pob" defaultValue={student.pob} />
                             
                             <Select label="Nationality" name="nationality" defaultValue={student.nationality} required>
                                 <option value="">Select Nationality</option>
@@ -221,7 +221,7 @@ export default function EditStudentPage() {
                             <Input label="Email Address" name="email" type="email" defaultValue={student.email} />
                             
                             <div className="md:col-span-2">
-                                <Input label="Address" name="address" defaultValue={student.address} required />
+                                <Input label="Address" name="address" defaultValue={student.address} />
                             </div>
                         </div>
                     </div>

@@ -10,7 +10,11 @@ import {
   Plus, 
   Search, 
   Filter,
-  Calendar
+  Calendar,
+  Eye,
+  Trash2,
+  Edit2,
+  MoreVertical
 } from "lucide-react";
 
 import { AddInsuranceModal } from "@/components/modals/AddInsuranceModal";
@@ -23,6 +27,18 @@ export default function InsurancePage() {
   const [policies, setPolicies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedStudentId, setSelectedStudentId] = useState<string | undefined>(undefined);
+  const [selectedPolicyData, setSelectedPolicyData] = useState<any>(undefined);
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+
+  // Close menu on click outside
+  useEffect(() => {
+      const handleClickOutside = () => setActiveMenu(null);
+      if (activeMenu) {
+          window.addEventListener('click', handleClickOutside);
+      }
+      return () => window.removeEventListener('click', handleClickOutside);
+  }, [activeMenu]);
 
   // Fetch Policies from Students
   useEffect(() => {
@@ -93,6 +109,37 @@ export default function InsurancePage() {
       return true;
   });
 
+  const handleDeleteInsurance = async (studentId: string, studentName: string) => {
+      if (window.confirm(`Are you sure you want to remove insurance for ${studentName}?`)) {
+          try {
+              const { updateStudent } = await import("@/lib/services/schoolService");
+              const { doc, updateDoc, deleteField } = await import("firebase/firestore");
+              const { db } = await import("@/lib/firebase");
+              
+              const docRef = doc(db, "students", studentId);
+              await updateDoc(docRef, {
+                  insurance_info: deleteField()
+              });
+              // Success handled by subscription
+          } catch (error) {
+              console.error("Error deleting insurance:", error);
+              alert("Failed to remove insurance info.");
+          }
+      }
+  };
+
+  const openRenewModal = (policy: any) => {
+      setSelectedStudentId(policy.id);
+      setSelectedPolicyData({
+          policyNumber: policy.policyNumber,
+          startDate: policy.startDate,
+          endDate: policy.endDate,
+          coverageAmount: policy.coverageAmount,
+          studentName: policy.studentName
+      });
+      setShowModal(true);
+  };
+
   return (
     <div className="space-y-8">
       {/* Header Section */}
@@ -115,13 +162,19 @@ export default function InsurancePage() {
               className="flex items-center justify-center gap-2 px-8 py-4 bg-indigo-600 text-white rounded-[1.25rem] font-black text-sm hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 active:scale-95 w-full md:w-auto"
           >
             <Plus size={20} />
-            <span>Protect New Student</span>
+            <span>Add Insurance</span>
           </button>
       </div>
 
       <AddInsuranceModal 
         isOpen={showModal}
-        onClose={() => setShowModal(false)}
+        studentId={selectedStudentId}
+        initialData={selectedPolicyData}
+        onClose={() => {
+            setShowModal(false);
+            setSelectedStudentId(undefined);
+            setSelectedPolicyData(undefined);
+        }}
         onSuccess={() => {
             // Data updates automatically via subscription
         }}
@@ -170,7 +223,8 @@ export default function InsurancePage() {
                 <thead>
                     <tr className="bg-slate-50/50 border-b border-slate-100 uppercase tracking-widest text-[9px] font-black text-slate-400">
                         <th className="px-8 py-4">Insured Student</th>
-                        <th className="px-8 py-4">Insurance Identifier</th>
+                        <th className="px-8 py-4">Insurance Number</th>
+                        <th className="px-8 py-4 text-center">Coverage</th>
                         <th className="px-8 py-4 text-center">Expired Date</th>
                         <th className="px-8 py-4 text-center">Current Status</th>
                         <th className="px-8 py-4 text-right">Action</th>
@@ -211,6 +265,12 @@ export default function InsurancePage() {
                                 </div>
                              </td>
                              <td className="px-8 py-4 text-center">
+                                 <div className="flex flex-col items-center">
+                                     <p className="font-bold text-slate-700 text-xs">${policy.coverageAmount?.toLocaleString() || '0'}</p>
+                                     <p className="text-[10px] text-slate-400 font-medium tracking-tight mt-0.5">Claimable</p>
+                                 </div>
+                             </td>
+                             <td className="px-8 py-4 text-center">
                                  <div className="flex flex-col items-center gap-1">
                                      <div className="flex items-center gap-1.5 text-[11px] font-black text-slate-700 uppercase tracking-tight bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
                                          <Calendar size={12} className="text-rose-400" />
@@ -229,16 +289,31 @@ export default function InsurancePage() {
                                      </span>
                                  </div>
                              </td>
-                             <td className="px-8 py-4 text-right">
-                                 <div className="flex items-center justify-end gap-1.5">
-                                     <button className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:text-indigo-600 bg-slate-50 hover:bg-white transition-all border border-transparent hover:border-indigo-100 shadow-sm hover:shadow-md" title="View Details">
-                                         <Search size={15} />
-                                     </button>
-                                     <button className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:text-emerald-600 bg-slate-50 hover:bg-white transition-all border border-transparent hover:border-emerald-100 shadow-sm hover:shadow-md" title="Edit Portfolio">
-                                         <Filter size={15} /> 
-                                     </button>
-                                 </div>
-                             </td>
+                               <td className="px-8 py-4 text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                      <button 
+                                        className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:text-indigo-600 bg-slate-50 hover:bg-white transition-all border border-transparent hover:border-indigo-100 shadow-sm hover:shadow-md" 
+                                        title="View Student"
+                                        onClick={() => window.open(`/admin/students/${policy.id}`, '_blank')}
+                                      >
+                                          <Eye size={15} />
+                                      </button>
+                                      <button 
+                                        className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:text-emerald-600 bg-slate-50 hover:bg-white transition-all border border-transparent hover:border-emerald-100 shadow-sm hover:shadow-md" 
+                                        title="Renew"
+                                        onClick={() => openRenewModal(policy)}
+                                      >
+                                          <Edit2 size={15} /> 
+                                      </button>
+                                      <button 
+                                        className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:text-rose-600 bg-slate-50 hover:bg-white transition-all border border-transparent hover:border-rose-100 shadow-sm hover:shadow-md" 
+                                        title="Delete"
+                                        onClick={() => handleDeleteInsurance(policy.id, policy.studentName)}
+                                      >
+                                          <Trash2 size={15} /> 
+                                      </button>
+                                  </div>
+                              </td>
                         </tr>
                     ))}
                 </tbody>

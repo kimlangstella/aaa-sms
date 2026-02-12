@@ -214,7 +214,7 @@ export default function StudentDetailPage() {
                                     </div>
                                     <div>
                                         <span className="text-slate-400 font-medium">Coverage:</span>
-                                        <span className="ml-2 text-slate-700 font-bold">${student.insurance_info.coverage_amount}</span>
+                                        <span className="ml-2 text-slate-700 font-bold">${student.insurance_info.coverage_amount?.toLocaleString() || '0'}</span>
                                     </div>
                                     <div>
                                         <span className="text-slate-400 font-medium">Valid Until:</span>

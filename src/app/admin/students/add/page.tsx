@@ -803,8 +803,8 @@ export default function AddStudentPage() {
                                 {/* Student Fields */}
                                 <div className="md:col-span-9 space-y-8">
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
-                                        <Input label="First Name" name="first_name" value={formData.first_name} onChange={handleInputChange} required />
                                         <Input label="Last Name" name="last_name" value={formData.last_name} onChange={handleInputChange} required />
+                                        <Input label="First Name" name="first_name" value={formData.first_name} onChange={handleInputChange} required />
                                         
                                         <Select label="Branch Name" name="branch_id" value={formData.branch_id} onChange={handleInputChange} required>
                                             <option value="">Select Branch</option>
