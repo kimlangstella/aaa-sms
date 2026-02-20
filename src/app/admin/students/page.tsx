@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { 
     UserPlus, Search, Filter, Loader2, Pencil, Eye, 
     ArrowUpDown, ArrowUp, ArrowDown, Settings2, X, ChevronDown,
-    Users, Calendar, CreditCard, Shield, Check, MoreVertical, Download
+    Users, Calendar, CreditCard, Shield, Check, MoreVertical, Download, FileSpreadsheet
 } from "lucide-react";
 import { Student, Branch, Enrollment, Class } from "@/lib/types";
 import { useAuth } from "@/lib/useAuth";
@@ -19,6 +19,7 @@ import { branchService } from "@/services/branchService";
 import { programService } from "@/services/programService";
 import { AddInsuranceModal } from "@/components/modals/AddInsuranceModal";
 import ImportStudentModal from "@/components/modals/ImportStudentModal";
+import StudentActionSelectionModal from "@/components/modals/StudentActionSelectionModal";
 import * as XLSX from "xlsx";
 
 // Column definition
@@ -33,6 +34,7 @@ const ALL_COLUMNS = [
     { key: 'program', label: 'Program', sortable: true },
     { key: 'status', label: 'Status', sortable: true },
     { key: 'admission_date', label: 'Admission Date', sortable: true },
+    { key: 'payment_status', label: 'Payment', sortable: true }, // Shortened label
     // Hidden by default
     { key: 'insurance_number', label: 'Insurance ID', sortable: false },
     { key: 'insurance_expired', label: 'Insurance Expiry', sortable: true },
@@ -40,8 +42,7 @@ const ALL_COLUMNS = [
     { key: 'modified_by', label: 'Modified by', sortable: true },
     { key: 'created_at', label: 'Created at', sortable: true },
     { key: 'updated_at', label: 'Updated at', sortable: true },
-    { key: 'payment_status', label: 'Payment Status', sortable: true },
-    { key: 'payment_expired', label: 'Payment End Date', sortable: true },
+    { key: 'payment_expired', label: 'Payment End', sortable: true }, // Shortened label
     { key: 'payment_note', label: 'Payment Note', sortable: false },
 ];
 
@@ -68,7 +69,7 @@ export default function StudentsPage() {
 
     // Column Visibility State
     const [visibleColumns, setVisibleColumns] = useState<string[]>([
-        'action', 'name', 'gender', 'nationality', 'dob', 'phone', 'branch', 'program', 'status', 'admission_date'
+        'action', 'name', 'gender', 'nationality', 'phone', 'branch', 'program', 'status', 'payment_status'
     ]);
     
     // UI State
@@ -83,6 +84,7 @@ export default function StudentsPage() {
     // Modals State
     const [showInsuranceModal, setShowInsuranceModal] = useState(false);
     const [showImportModal, setShowImportModal] = useState(false);
+    const [showSelectionModal, setShowSelectionModal] = useState(false);
     const [selectedStudentId, setSelectedStudentId] = useState("");
 
     // Selection State
@@ -464,24 +466,16 @@ export default function StudentsPage() {
                  </div>
 
                  <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                     <button
+                    <button
                         onClick={handleExport}
                         className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-3 sm:px-6 sm:py-3.5 bg-white text-slate-700 rounded-[1.25rem] font-black text-xs sm:text-sm hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 transition-all border border-slate-100 shadow-sm hover:shadow-lg active:scale-95 group"
                     >
-                        <Download size={18} className="rotate-180 text-slate-400 group-hover:text-emerald-600 transition-colors sm:hidden" />
-                        <Download size={20} className="rotate-180 text-slate-400 group-hover:text-emerald-600 transition-colors hidden sm:block group-hover:scale-110" />
+                        <FileSpreadsheet size={18} className="text-slate-400 group-hover:text-emerald-600 transition-colors sm:hidden" />
+                        <FileSpreadsheet size={20} className="text-slate-400 group-hover:text-emerald-600 transition-colors hidden sm:block group-hover:scale-110" />
                         <span>Export</span>
                     </button>
                     <button
-                        onClick={() => setShowImportModal(true)}
-                        className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-3 sm:px-6 sm:py-3.5 bg-white text-slate-700 rounded-[1.25rem] font-black text-xs sm:text-sm hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 transition-all border border-slate-100 shadow-sm hover:shadow-lg active:scale-95 group"
-                    >
-                        <Download size={18} className="text-slate-400 group-hover:text-indigo-600 transition-colors sm:hidden" />
-                        <Download size={20} className="text-slate-400 group-hover:text-indigo-600 transition-colors hidden sm:block group-hover:scale-110" />
-                        <span>Import</span>
-                    </button>
-                    <button
-                        onClick={() => router.push('/admin/students/add')}
+                        onClick={() => setShowSelectionModal(true)}
                         className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3.5 sm:px-8 bg-indigo-600 text-white rounded-[1.25rem] font-black text-xs sm:text-sm hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all hover:-translate-y-0.5 active:scale-95"
                     >
                         <UserPlus size={18} className="sm:hidden" />
@@ -655,12 +649,12 @@ export default function StudentsPage() {
                                 {ALL_COLUMNS.filter(col => visibleColumns.includes(col.key)).map((col, index) => (
                                     <th
                                         key={col.key}
-                                        className={`text-left px-6 py-5 text-[11px] font-black text-slate-400 uppercase tracking-[0.1em] ${
+                                        className={`px-4 py-4 text-sm font-black text-slate-800 uppercase tracking-widest text-left whitespace-nowrap ${
                                             col.sortable ? 'cursor-pointer hover:text-indigo-600 transition-colors' : ''
-                                        } ${col.key === 'name' ? 'min-w-[280px]' : ''} ${col.key === 'dob' ? 'min-w-[140px]' : ''}`}
+                                        } ${col.key === 'action' ? 'text-left' : ''}`}
                                         onClick={() => col.sortable && handleSort(col.key)}
                                     >
-                                        <div className="flex items-center gap-2">
+                                        <div className={`flex items-center gap-2 ${col.key === 'action' ? 'justify-start' : ''}`}>
                                             <span>{col.label}</span>
                                             {col.sortable && (
                                                 <span className="text-slate-300">
@@ -696,133 +690,147 @@ export default function StudentsPage() {
                                                     />
                                                 </div>
                                             </td>
-                                        {visibleColumns.includes('action') && (
-                                            <td className="p-4 pl-6">
-                                                <div className="relative z-10">
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setActiveActionId(activeActionId === student.student_id ? null : student.student_id);
-                                                        }}
-                                                        className="p-2 rounded-[1.25rem] hover:bg-white hover:shadow-md text-slate-400 hover:text-indigo-600 transition-all"
-                                                    >
-                                                        <MoreVertical size={18} />
-                                                    </button>
-                                                    
-                                                    {activeActionId === student.student_id && (
-                                                        <>
-                                                            <div 
-                                                                className="fixed inset-0 z-40" 
-                                                                onClick={() => setActiveActionId(null)}
-                                                            />
-                                                            <div className="absolute left-0 bottom-full mb-2 flex items-center gap-1 bg-white rounded-[1.25rem] shadow-xl border border-slate-100 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-200">
-                                                                <button
-                                                                    onClick={() => router.push(`/admin/students/${student.student_id}`)}
-                                                                    className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
-                                                                    title="View Details"
-                                                                >
-                                                                    <Eye size={16} />
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => router.push(`/admin/students/edit/${student.student_id}`)}
-                                                                    className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-amber-50 hover:text-amber-600 transition-colors"
-                                                                    title="Edit Profile"
-                                                                >
-                                                                    <Pencil size={16} />
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => {
-                                                                        setSelectedStudentId(student.student_id);
-                                                                        setShowInsuranceModal(true);
-                                                                        setActiveActionId(null);
-                                                                    }}
-                                                                    className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
-                                                                    title="Insurance"
-                                                                >
-                                                                    <Shield size={16} />
-                                                                </button>
-                                                            </div>
-                                                        </>
-                                                    )}
-                                                </div>
-                                            </td>
-                                        )}
-                                        {visibleColumns.includes('name') && (
-                                            <td className="p-4">
+                                            
+                                            {/* Action Column - Moved to the front */}
+                                            {visibleColumns.includes('action') && (
+                                                <td className="px-4 py-3 text-left">
+                                                    <div className="relative inline-block text-left">
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setActiveActionId(activeActionId === student.student_id ? null : student.student_id);
+                                                            }}
+                                                            className={`p-2 rounded-full transition-all duration-200 ${
+                                                                activeActionId === student.student_id 
+                                                                ? 'bg-indigo-100 text-indigo-600' 
+                                                                : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+                                                            }`}
+                                                        >
+                                                            <MoreVertical size={16} />
+                                                        </button>
+                                                        
+                                                        {activeActionId === student.student_id && (
+                                                            <>
+                                                                <div 
+                                                                    className="fixed inset-0 z-40" 
+                                                                    onClick={() => setActiveActionId(null)}
+                                                                />
+                                                                <div className="absolute left-0 top-full mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-100 py-1 z-50 animate-in fade-in zoom-in-95 duration-200 origin-top-left">
+                                                                    <button
+                                                                        onClick={() => router.push(`/admin/students/${student.student_id}`)}
+                                                                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-indigo-600 flex items-center gap-2"
+                                                                    >
+                                                                        <Eye size={16} /> View Details
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => router.push(`/admin/students/edit/${student.student_id}`)}
+                                                                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-amber-600 flex items-center gap-2"
+                                                                    >
+                                                                        <Pencil size={16} /> Edit Profile
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setSelectedStudentId(student.student_id);
+                                                                            setShowInsuranceModal(true);
+                                                                            setActiveActionId(null);
+                                                                        }}
+                                                                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-emerald-600 flex items-center gap-2"
+                                                                    >
+                                                                        <Shield size={16} /> Insurance
+                                                                    </button>
+                                                                    <div className="h-px bg-slate-100 my-1" />
+                                                                    <button
+                                                                        onClick={() => {
+                                                                           if (confirm('Are you sure you want to delete this student?')) {
+                                                                               deleteStudent(student.student_id);
+                                                                           }
+                                                                           setActiveActionId(null);
+                                                                        }}
+                                                                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-rose-600 hover:bg-rose-50 flex items-center gap-2"
+                                                                    >
+                                                                        <div className="w-4 h-4 flex items-center justify-center">?</div> Delete
+                                                                    </button>
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            )}
+
+                                            {visibleColumns.includes('name') && (
+                                                <td className="px-4 py-3 min-w-[280px]">
                                                 <div className="flex items-center gap-3">
-                                                    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-500 overflow-hidden border-2 border-white shadow-sm">
+                                                    <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-500 overflow-hidden border border-slate-200">
                                                         {student.image_url ? (
                                                             <img src={student.image_url} alt="" className="w-full h-full object-cover" />
                                                         ) : (
-                                                            student.student_name.charAt(0)
+                                                            <span className="uppercase">{student.student_name.charAt(0)}</span>
                                                         )}
                                                     </div>
                                                     <div>
-                                                        <p className="font-bold text-slate-800 text-sm group-hover:text-indigo-600 transition-colors">{student.student_name}</p>
-                                                        <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">{student.student_code}</p>
+                                                        <p className="font-bold text-slate-700 text-sm group-hover:text-indigo-600 transition-colors">{student.student_name}</p>
+                                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{student.student_code}</p>
                                                     </div>
                                                 </div>
                                             </td>
                                         )}
                                         {visibleColumns.includes('gender') && (
-                                            <td className="p-4">
-                                                <span className="font-bold text-slate-600 text-sm">{student.gender}</span>
+                                            <td className="px-4 py-3">
+                                                <span className="font-semibold text-slate-600 text-sm">{student.gender}</span>
                                             </td>
                                         )}
                                         {visibleColumns.includes('nationality') && (
-                                            <td className="p-4">
-                                                <span className="font-bold text-slate-600 text-sm">{student.nationality}</span>
+                                            <td className="px-4 py-3">
+                                                <span className="font-semibold text-slate-600 text-sm">{student.nationality}</span>
                                             </td>
                                         )}
                                         {visibleColumns.includes('dob') && (
-                                            <td className="p-4">
-                                                <span className="font-semibold text-slate-600 text-sm">{student.dob}</span>
+                                            <td className="px-4 py-3">
+                                                <span className="font-medium text-slate-500 text-sm">{student.dob || '-'}</span>
                                             </td>
                                         )}
                                         {visibleColumns.includes('phone') && (
-                                            <td className="p-4">
-                                                <span className="font-semibold text-slate-500 text-sm">{student.phone}</span>
+                                            <td className="px-4 py-3">
+                                                <span className="font-medium text-slate-500 text-sm">{student.phone}</span>
                                             </td>
                                         )}
                                         {visibleColumns.includes('branch') && (
-                                            <td className="p-4">
-                                                <span className="inline-flex px-3 py-1 rounded-lg bg-slate-50 text-slate-600 text-xs font-bold border border-slate-100">
+                                            <td className="px-4 py-3">
+                                                <span className="inline-flex px-2.5 py-1 rounded-md bg-slate-50 text-slate-600 text-xs font-bold border border-slate-200/60 shadow-sm">
                                                     {student.branch_name}
                                                 </span>
                                             </td>
                                         )}
                                         {visibleColumns.includes('program') && (
-                                            <td className="p-4">
-                                                <span className="text-sm font-medium text-slate-500">{student.program}</span>
+                                            <td className="px-4 py-3">
+                                                <span className="text-sm font-medium text-slate-600">{student.program || '-'}</span>
                                             </td>
                                         )}
                                         {visibleColumns.includes('status') && (
-                                            <td className="p-4">
-                                                <div className="flex items-center gap-2">
-                                                    <span className={`w-2 h-2 rounded-full ${
+                                            <td className="px-4 py-3">
+                                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${
+                                                    student.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                                                    student.status === 'Hold' ? 'bg-amber-50 text-amber-700 border-amber-100' :
+                                                    'bg-slate-50 text-slate-500 border-slate-100'
+                                                }`}>
+                                                    <span className={`w-1.5 h-1.5 rounded-full ${
                                                         student.status === 'Active' ? 'bg-emerald-500' :
                                                         student.status === 'Hold' ? 'bg-amber-500' :
-                                                        'bg-slate-300'
+                                                        'bg-slate-400'
                                                     }`} />
-                                                    <span className={`text-xs font-bold ${
-                                                        student.status === 'Active' ? 'text-emerald-700' :
-                                                        student.status === 'Hold' ? 'text-amber-700' :
-                                                        'text-slate-500'
-                                                    }`}>
-                                                        {student.status}
-                                                    </span>
-                                                </div>
+                                                    {student.status}
+                                                </span>
                                             </td>
                                         )}
                                         {visibleColumns.includes('admission_date') && (
-                                            <td className="p-4">
-                                                <span className="font-semibold text-slate-600 text-sm">{student.admission_date}</span>
+                                            <td className="px-4 py-3">
+                                                <span className="font-medium text-slate-500 text-sm">{student.admission_date}</span>
                                             </td>
                                         )}
                                         {visibleColumns.includes('payment_status') && (
-                                            <td className="p-4">
-                                                <span className={`inline-flex px-3 py-1 rounded-full text-xs font-bold border ${
-                                                    student.payment_status === 'Paid' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
+                                            <td className="px-4 py-3">
+                                                <span className={`inline-flex px-2.5 py-1 rounded-md text-xs font-bold border ${
+                                                    student.payment_status === 'Paid' ? 'bg-indigo-50 border-indigo-100 text-indigo-700' :
                                                     student.payment_status === 'Unpaid' ? 'bg-rose-50 border-rose-100 text-rose-700' :
                                                     'bg-slate-50 border-slate-100 text-slate-500'
                                                 }`}>
@@ -864,13 +872,15 @@ export default function StudentsPage() {
                                             if (visibleColumns.includes(colKey)) {
                                                 const val = (student as any)[colKey] || 'N/A';
                                                 return (
-                                                    <td key={colKey} className="p-4">
+                                                    <td key={colKey} className="px-4 py-3">
                                                         <span className="text-slate-500 text-xs font-medium">{val}</span>
                                                     </td>
                                                 )
                                             }
                                             return null;
                                         })}
+
+
                                     </tr>
                                 ))
                             )}
@@ -944,6 +954,19 @@ export default function StudentsPage() {
                     }}
                 />
             )}
+            
+            <StudentActionSelectionModal 
+                isOpen={showSelectionModal}
+                onClose={() => setShowSelectionModal(false)}
+                onSelect={(action) => {
+                    setShowSelectionModal(false);
+                    if (action === 'single') {
+                        router.push('/admin/students/add');
+                    } else if (action === 'import') {
+                        setTimeout(() => setShowImportModal(true), 100); 
+                    }
+                }}
+            />
             {/* Floating Selection Bar */}
             {selectedStudents.size > 0 && (
                 <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-10 duration-500">

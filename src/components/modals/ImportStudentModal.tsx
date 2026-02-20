@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { X, Upload, FileText, CheckCircle2, AlertCircle, Loader2, Search, Download, Edit2, Check, AlertTriangle, Trash2, RotateCcw } from "lucide-react";
+import { X, Upload, FileText, CheckCircle2, AlertCircle, Loader2, Search, Download, Edit2, Check, AlertTriangle, Trash2, RotateCcw, Folder } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Student, Branch, Gender, StudentStatus, Program, Class, Term } from "@/lib/types";
 import { branchService } from "@/services/branchService";
@@ -57,6 +57,7 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
 
     // Editing state
     const [editingCell, setEditingCell] = useState<{ index: number; field: keyof ParsedStudent } | null>(null);
+
 
     useEffect(() => {
         const handleEsc = (e: KeyboardEvent) => {
@@ -398,52 +399,44 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
                     {step === 'upload' && (
                         <div className="space-y-8 animate-in fade-in duration-500">
                             {!selectedFile ? (
-                                        <div 
-                                            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                                            onDragLeave={() => setIsDragging(false)}
-                                            onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleFileUpload(e); }}
-                                            className={`relative border-2 border-dashed rounded-[2.5rem] p-12 text-center transition-all duration-500 cursor-pointer group overflow-hidden ${
-                                                isDragging ? 'border-indigo-500 bg-indigo-50/50 scale-[0.98]' : 'border-slate-100 hover:border-indigo-300 hover:bg-slate-50/50'
-                                            }`}
-                                            onClick={() => fileInputRef.current?.click()}
-                                        >
-                                            <input 
-                                                type="file" 
-                                                ref={fileInputRef} 
-                                                className="hidden" 
-                                                accept=".xlsx,.xls,.csv"
-                                                onChange={handleFileUpload} 
-                                            />
-                                            
-                                            {/* Image2 Styled Icon Area */}
-                                            <div className="relative flex flex-col items-center">
-                                                <div className="relative mb-8 group-hover:scale-110 transition-transform duration-500">
-                                                    {/* Outer Shadow Circle */}
-                                                    <div className="absolute inset-x-0 -bottom-4 h-8 bg-black/5 blur-2xl rounded-full scale-x-150" />
-                                                    
-                                                    {/* Document Icon (Stacked Style) */}
-                                                    <div className="relative w-28 h-28 bg-indigo-950 text-white rounded-[2rem] flex items-center justify-center shadow-2xl overflow-hidden">
-                                                        <div className="absolute top-0 right-0 w-12 h-12 bg-indigo-900/40 rounded-bl-[1.5rem]" />
-                                                        <div className="flex flex-col items-center">
-                                                            <div className="w-10 h-1.5 bg-indigo-400/50 rounded-full mb-1.5" />
-                                                            <div className="w-14 h-1.5 bg-indigo-400/50 rounded-full mb-1.5" />
-                                                            <div className="text-[12px] font-black uppercase tracking-widest mt-2">.EXCEL</div>
-                                                        </div>
-                                                        
-                                                        {/* Downward Arrow Overlay (Image2 style) */}
-                                                        <div className="absolute -bottom-2 -right-2 w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center border-4 border-white shadow-xl">
-                                                            <Download size={24} strokeWidth={3} className="text-white" />
-                                                        </div>
+                                        <div className="space-y-6">
+                                            <p className="text-sm font-bold text-slate-600">
+                                                Upload your .CSV file or <button onClick={downloadTemplate} className="text-blue-500 hover:underline">download the CSV file</button> to see the format the data must be in.
+                                            </p>
+
+                                            <div 
+                                                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                                                onDragLeave={() => setIsDragging(false)}
+                                                onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleFileUpload(e); }}
+                                                className={`border-2 border-dashed rounded-lg p-12 text-center transition-all cursor-pointer group flex flex-col items-center justify-center gap-4 bg-slate-50/50 ${
+                                                    isDragging ? 'border-blue-500 bg-blue-50/50' : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'
+                                                }`}
+                                                onClick={() => fileInputRef.current?.click()}
+                                            >
+                                                <input 
+                                                    type="file" 
+                                                    ref={fileInputRef} 
+                                                    className="hidden" 
+                                                    accept=".xlsx,.xls,.csv"
+                                                    onChange={handleFileUpload} 
+                                                />
+                                                
+                                                <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center text-blue-400 mb-2 pointer-events-none select-none">
+                                                    <Folder size={32} fill="currentColor" className="text-blue-200" />
+                                                    <div className="absolute">
+                                                        <FileText size={16} className="text-blue-500 translate-y-1" />
                                                     </div>
                                                 </div>
 
-                                                <h3 className="text-3xl font-black text-slate-900 tracking-tighter">Drag & Drop</h3>
-                                                <div className="flex items-center gap-1.5 mt-2">
-                                                    <span className="text-slate-400 font-bold text-xs">or</span>
-                                                    <span className="text-indigo-600 font-black text-xs hover:underline">choose a file</span>
+                                                <h3 className="text-base font-bold text-slate-700">Drag your CSV file here, or...</h3>
+                                                
+                                                <div className="flex items-center gap-3 bg-white border border-slate-200 rounded px-3 py-1.5 shadow-sm">
+                                                    <span className="bg-slate-100 border border-slate-200 text-slate-600 text-xs font-bold px-2 py-1 rounded">Choose File</span>
+                                                    <span className="text-xs text-slate-400 font-medium">No file chosen</span>
                                                 </div>
-                                                <p className="text-[10px] font-bold text-slate-300 uppercase tracking-widest mt-12">Maximum file size 50MB</p>
                                             </div>
+
+
                                         </div>
                                     ) : (
                                         <div className="space-y-10 animate-in zoom-in-95 duration-500">
@@ -638,7 +631,13 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
                                                     </td>
 
                                                     <td className="p-3 text-center">
-                                                        <Trash2 size={14} className="text-slate-300 hover:text-rose-500 cursor-pointer mx-auto transition-colors" onClick={() => handleDeleteRow(idx)} />
+                                                        <button 
+                                                            onClick={() => handleDeleteRow(idx)}
+                                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-100 transition-colors mx-auto"
+                                                        >
+                                                            <Trash2 size={14} />
+                                                            <span className="text-[10px] font-black uppercase tracking-wider">Delete</span>
+                                                        </button>
                                                     </td>
                                                 </tr>
                                             ))}

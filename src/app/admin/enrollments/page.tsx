@@ -23,6 +23,7 @@ import { programService } from "@/services/programService";
 import { termService } from "@/services/termService";
 import { Term } from "@/lib/types";
 import { useAuth } from "@/lib/useAuth";
+import { serverTimestamp } from "firebase/firestore";
 
 /* =========================
    TYPES & HELPERS
@@ -47,7 +48,7 @@ const getPaymentStatus = (paid: number, total: number, discount: number = 0) => 
 function ClassCard({ cls, enrollments, onClick, onEdit, onDelete, branchName }: { cls: Class, enrollments: Enrollment[], onClick: () => void, onEdit: () => void, onDelete: () => void, branchName: string }) {
   const { profile } = useAuth();
   const router = useRouter();
-  const activeEnrollments = enrollments.filter(e => e.class_id === cls.class_id);
+  const activeEnrollments = enrollments.filter(e => e.class_id === cls.class_id && (e.enrollment_status === 'Active' || e.enrollment_status === 'Hold'));
   const count = activeEnrollments.length;
   const capacity = cls.maxStudents || 0;
   const isFull = capacity > 0 && count >= capacity;
@@ -146,7 +147,7 @@ function ClassCard({ cls, enrollments, onClick, onEdit, onDelete, branchName }: 
 }
 
 function ClassListRow({ cls, enrollments, onClick, onEdit, onDelete, branchName }: { cls: Class, enrollments: Enrollment[], onClick: () => void, onEdit: () => void, onDelete: () => void, branchName: string }) {
-  const activeEnrollments = enrollments.filter(e => e.class_id === cls.class_id);
+  const activeEnrollments = enrollments.filter(e => e.class_id === cls.class_id && (e.enrollment_status === 'Active' || e.enrollment_status === 'Hold'));
   const count = activeEnrollments.length;
   const capacity = cls.maxStudents || 0;
   const isFull = capacity > 0 && count >= capacity;
@@ -308,6 +309,8 @@ export default function EnrollmentsPage() {
   const searchParams = useSearchParams();
   const tab = searchParams.get('tab');
   const [showAddClassModal, setShowAddClassModal] = useState(tab === 'add-class');
+  const [showFullWarning, setShowFullWarning] = useState(false);
+
 
   useEffect(() => {
     setShowAddClassModal(tab === 'add-class');
@@ -722,7 +725,14 @@ export default function EnrollmentsPage() {
                     {/* Add Student - only when viewing active term */}
                     {!filterTerm && (
                         <button 
-                            onClick={() => setShowAddModal(true)}
+                            onClick={() => {
+                                const capacity = Number(selectedClass.maxStudents) || 0;
+                                if (capacity > 0 && classRoster.length >= capacity) {
+                                    setShowFullWarning(true);
+                                } else {
+                                    setShowAddModal(true);
+                                }
+                            }}
                             className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-xs hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center gap-2"
                         >
                             <Plus size={16} />
@@ -764,67 +774,23 @@ export default function EnrollmentsPage() {
                 )}
             </div>
 
-            {/* MODAL: ADD STUDENT */}
             {showAddModal && (
-                <div 
-                    onClick={() => setShowAddModal(false)}
-                    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"
-                >
-                    <div 
-                        onClick={(e) => e.stopPropagation()}
-                        className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"
-                    >
-                        <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                            <div>
-                                <h2 className="text-xl font-black text-slate-900">Enroll Student</h2>
-                                <p className="text-xs font-bold text-slate-400 mt-1">Add student to class and set payment</p>
-                            </div>
-                            <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
-                        </div>
-                        
-                        <form onSubmit={handleAddStudent} className="p-8 space-y-6">
-                            <div className="space-y-4">
-                                <div className="space-y-1.5">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Select Student</label>
-                                    <div className="relative">
-                                        <select 
-                                            required 
-                                            className="w-full px-4 py-3 rounded-xl bg-slate-50 border-2 border-slate-100 text-slate-900 text-sm font-bold focus:bg-white focus:border-indigo-500 outline-none transition-all appearance-none"
-                                            onChange={(e) => setSelectedStudentIds([e.target.value])}
-                                        >
-                                            <option value="">Choose Student...</option>
-                                            {availableStudents.map(s => (
-                                                <option key={s.student_id} value={s.student_id}>{s.student_name} ({s.student_code})</option>
-                                            ))}
-                                        </select>
-                                        <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                     <Input label="Total Amount" type="number" name="total_amount" required defaultValue={getProgramPrice} />
-                                     <Input label="Discount" type="number" name="discount" defaultValue={0} />
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                     <Input label="Paid Amount" type="number" name="paid_amount" required defaultValue={0} />
-                                     <Select label="Payment Type" name="payment_type">
-                                         <option value="Cash">Cash</option>
-                                         <option value="ABA">ABA PayWay</option>
-                                     </Select>
-                                </div>
-                                <Input label="Payment Due Date (Optional)" type="date" name="payment_expired" />
-                            </div>
-
-                            <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                                <button type="button" onClick={() => setShowAddModal(false)} className="px-6 py-3 rounded-xl text-slate-400 font-bold text-xs hover:bg-slate-50 transition-all">Cancel</button>
-                                <button disabled={isSubmitting} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 disabled:opacity-50 flex items-center gap-2">
-                                    {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
-                                    <span>Enroll Student</span>
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
+                <EnrollmentFormModal
+                    isOpen={showAddModal}
+                    onClose={() => setShowAddModal(false)}
+                    selectedClass={selectedClass}
+                    availableStudents={availableStudents}
+                    activeTerm={activeTerm}
+                    terms={terms}
+                    programPrice={getProgramPrice}
+                    displayTermId={displayTermId}
+                    currentCount={classRoster.length}
+                    onSuccess={() => {
+                        setShowAddModal(false);
+                        setSelectedStudentIds([]);
+                        setStudentSearchQuery("");
+                    }}
+                />
             )}
 
             {/* TRANSFER MODAL */}
@@ -877,6 +843,13 @@ export default function EnrollmentsPage() {
                 <InvoiceModal 
                     enrollment={viewInvoiceEnrollment} 
                     onClose={() => setViewInvoiceEnrollment(null)} 
+                />
+            )}
+
+            {showFullWarning && selectedClass && (
+                <ClassFullWarningModal 
+                    capacity={Number(selectedClass.maxStudents) || 0}
+                    onClose={() => setShowFullWarning(false)}
                 />
             )}
         </div>
@@ -1520,6 +1493,425 @@ function EditClassModal({ cls, onClose, onSuccess }: { cls: Class, onClose: () =
                     </div>
                 </form>
              </div>
+        </div>
+    );
+}
+
+function ClassFullWarningModal({ onClose, capacity }: { onClose: () => void, capacity: number }) {
+    return (
+        <div 
+             onClick={onClose}
+             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"
+        >
+            <div 
+                 onClick={(e) => e.stopPropagation()}
+                 className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"
+            >
+                <div className="p-8 text-center space-y-4">
+                     <div className="w-16 h-16 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center mx-auto mb-4">
+                         <Users size={32} />
+                     </div>
+                     <h2 className="text-xl font-black text-slate-900">Class Limit Reached</h2>
+                     <p className="text-sm font-bold text-slate-500 leading-relaxed">
+                        This class has reached its maximum capacity of <span className="text-rose-600">{capacity} students</span>.
+                        <br/>You cannot add more students at this time.
+                     </p>
+                     
+                     <div className="pt-6">
+                         <button 
+                            onClick={onClose}
+                            className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 transition-all shadow-xl shadow-slate-200"
+                         >
+                            Understood
+                         </button>
+                     </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function EnrollmentFormModal({ 
+    isOpen, 
+    onClose, 
+    selectedClass, 
+    availableStudents, 
+    activeTerm, 
+    terms, 
+    programPrice, 
+    onSuccess,
+    displayTermId,
+    currentCount = 0
+}: any) {
+    const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+    const [studentDropdownOpen, setStudentDropdownOpen] = useState(false);
+    const [studentSearchQuery, setStudentSearchQuery] = useState("");
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const studentInputRef = useRef<HTMLInputElement>(null);
+
+    // Global Payment State
+    const [totalAmount, setTotalAmount] = useState(programPrice);
+    const [discount, setDiscount] = useState(0);
+    const [paidAmount, setPaidAmount] = useState(programPrice);
+    const [paymentType, setPaymentType] = useState('Cash');
+    const [dueDate, setDueDate] = useState('');
+
+    // Per-Student Overrides
+    type PaymentDetails = {
+        total: number;
+        discountPercent: number; // Storing percentage directly for better input handling
+        discountAmount: number; // Calculated amount
+        paid: number;
+        type: string;
+        dueDate: string;
+    };
+    const [overrides, setOverrides] = useState<Record<string, PaymentDetails>>({});
+    const [editingId, setEditingId] = useState<string | null>(null);
+
+    // Update global total if prop changes
+    useEffect(() => {
+        setTotalAmount(programPrice);
+    }, [programPrice]);
+
+    // Auto-set Global Due Date from Active Term
+    useEffect(() => {
+        if (activeTerm?.end_date) {
+            setDueDate(activeTerm.end_date.split('T')[0]);
+        }
+    }, [activeTerm]);
+
+    // Auto-calculate Global Paid Amount
+    useEffect(() => {
+        setPaidAmount(Math.max(0, totalAmount - (totalAmount * (discount / 100))));
+    }, [totalAmount, discount]);
+
+    const toggleStudent = (id: string) => {
+        setSelectedStudentIds(prev => {
+            const newIds = prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id];
+            if (!newIds.includes(id)) {
+                // Cleanup override if removing
+                const newOverrides = { ...overrides };
+                delete newOverrides[id];
+                setOverrides(newOverrides);
+                if (editingId === id) setEditingId(null);
+            }
+            return newIds;
+        });
+    };
+
+    const getStudentPaymentDetails = (id: string) => {
+        if (overrides[id]) return overrides[id];
+        return {
+            total: totalAmount,
+            discountPercent: discount,
+            discountAmount: (totalAmount * discount) / 100,
+            paid: paidAmount,
+            type: paymentType,
+            dueDate: dueDate
+        };
+    };
+
+    const handleSaveOverride = (id: string, details: PaymentDetails) => {
+        setOverrides(prev => ({ ...prev, [id]: details }));
+    };
+
+    const handleAddStudent = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (selectedStudentIds.length === 0) {
+            alert("Please select at least one student");
+            return;
+        }
+
+        const capacity = Number(selectedClass.maxStudents) || 0;
+        if (capacity > 0 && (currentCount + selectedStudentIds.length) > capacity) {
+            alert(`Cannot enroll students. Class capacity of ${capacity} exceeded.`);
+            return;
+        }
+
+        setIsSubmitting(true);
+        try {
+            const currentTermString = new Date().getFullYear() + "_T" + (Math.floor(new Date().getMonth() / 3) + 1);
+            let termId = displayTermId || activeTerm?.term_id || '';
+            let termName = "";
+            if (termId) {
+                termName = terms.find((t: any) => t.term_id === termId)?.term_name || "";
+            } else {
+                 termName = activeTerm?.term_name || currentTermString;
+            }
+
+            const enrollPromises = selectedStudentIds.map(studentId => {
+                 const details = getStudentPaymentDetails(studentId);
+                 return addEnrollment({
+                    class_id: selectedClass.class_id,
+                    student_id: studentId,
+                    start_session: 1,
+                    total_amount: Number(details.total),
+                    discount: Number(details.discountAmount),
+                    paid_amount: Number(details.paid),
+                    payment_status: Number(details.paid) >= Number(details.total - details.discountAmount) ? 'Paid' : 'Unpaid',
+                    payment_type: details.type as any,
+                    payment_due_date: Number(details.paid) < Number(details.total - details.discountAmount) ? (details.dueDate || null) : null, 
+                    payment_expired: details.dueDate || null,
+                    enrollment_status: 'Active',
+                    term: termName,
+                    term_id: termId,
+                    branchId: selectedClass.branchId || '',
+                    programId: selectedClass.programId || '',
+                    enrolled_at: serverTimestamp()
+                });
+            });
+
+            await Promise.all(enrollPromises);
+            onSuccess();
+        } catch (error) {
+            console.error("Error enrolling students:", error);
+            alert("Failed to enroll students. Please try again.");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <div 
+            onClick={onClose}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"
+        >
+            <div 
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col"
+            >
+                <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+                    <div>
+                        <h2 className="text-xl font-black text-slate-900">Enroll Student</h2>
+                        <p className="text-xs font-bold text-slate-400 mt-1">Add student to class and set payment</p>
+                    </div>
+                    <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
+                </div>
+                
+                <form onSubmit={handleAddStudent} className="flex-1 overflow-y-auto custom-scrollbar p-8 space-y-8">
+                    
+                    {/* 1. Student Selection Dropdown */}
+                    <div className="space-y-1.5 relative">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Add Students</label>
+                        {studentDropdownOpen && <div className="fixed inset-0 z-40" onClick={() => setStudentDropdownOpen(false)} />}
+                        <div className="relative z-50">
+                            <button
+                                type="button"
+                                onClick={() => setStudentDropdownOpen(!studentDropdownOpen)}
+                                className="w-full px-4 py-3 rounded-xl bg-slate-50 border-2 border-slate-100 text-left text-sm font-bold text-slate-900 focus:bg-white focus:border-indigo-500 outline-none transition-all flex justify-between items-center hover:bg-slate-100"
+                            >
+                                <span className="text-slate-500">
+                                    {selectedStudentIds.length > 0 ? "Add more students..." : "Select Students..."}
+                                </span>
+                                <ChevronDown size={16} className={`text-slate-400 transition-transform ${studentDropdownOpen ? 'rotate-180' : ''}`} />
+                            </button>
+
+                            {studentDropdownOpen && (
+                                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[300px] animate-in fade-in zoom-in-95 duration-200 ring-4 ring-slate-200/50">
+                                    <div className="p-3 border-b border-slate-100 bg-slate-50/80 backdrop-blur-sm sticky top-0 z-10">
+                                        <div className="relative group">
+                                            <input 
+                                                ref={studentInputRef}
+                                                type="text" 
+                                                placeholder="Search..." 
+                                                value={studentSearchQuery}
+                                                onChange={(e) => setStudentSearchQuery(e.target.value)}
+                                                className="w-full pl-4 pr-9 py-2.5 rounded-xl border border-slate-200 text-xs font-bold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all bg-white"
+                                                autoFocus
+                                            />
+                                            <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors pointer-events-none" size={14} />
+                                        </div>
+                                    </div>
+                                    <div className="overflow-y-auto flex-1 p-2 space-y-1 custom-scrollbar">
+                                        {availableStudents.length === 0 ? (
+                                            <div className="py-8 text-center text-slate-400 text-xs font-bold">No students found.</div>
+                                        ) : (
+                                            availableStudents.map((s: any) => (
+                                                <div 
+                                                    key={s.student_id} 
+                                                    onClick={() => toggleStudent(s.student_id)}
+                                                    className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all border ${selectedStudentIds.includes(s.student_id) ? 'bg-indigo-50 border-indigo-200' : 'hover:bg-slate-50 border-transparent'}`}
+                                                >
+                                                    <div className={`w-5 h-5 rounded-lg flex items-center justify-center border transition-all ${selectedStudentIds.includes(s.student_id) ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300'}`}>
+                                                        {selectedStudentIds.includes(s.student_id) && <Check size={12} className="text-white" strokeWidth={4} />}
+                                                    </div>
+                                                    <div className="w-8 h-8 rounded-full bg-white border border-slate-100 flex items-center justify-center overflow-hidden shrink-0">
+                                                         {s.image_url ? <img src={s.image_url} className="w-full h-full object-cover" /> : <span className="text-[10px] font-black text-slate-400">{s.student_name.charAt(0)}</span>}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-xs font-black text-slate-700">{s.student_name}</p>
+                                                        <span className="text-[10px] font-bold text-slate-400">{s.student_code}</span>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* 2. Selected Students List (Cards) */}
+                    {selectedStudentIds.length > 0 && (
+                        <div className="space-y-3">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">
+                                Selected Students ({selectedStudentIds.length})
+                            </label>
+                            
+                            <div className="grid gap-3">
+                                {selectedStudentIds.map(id => {
+                                    const student = availableStudents.find((s: any) => s.student_id === id);
+                                    if (!student) return null;
+                                    const isEditing = editingId === id;
+                                    const payment = getStudentPaymentDetails(id);
+                                    const hasOverride = !!overrides[id];
+
+                                    return (
+                                        <div key={id} className={`rounded-xl border transition-all ${isEditing ? 'border-indigo-500 ring-4 ring-indigo-500/10 bg-white shadow-lg' : 'border-slate-200 bg-white hover:border-indigo-300'}`}>
+                                            {/* Card Header (Always Visible) */}
+                                            <div className="p-3 flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-full bg-slate-100 flex-shrink-0 overflow-hidden border border-slate-100">
+                                                    {student.image_url ? <img src={student.image_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-black text-slate-400">{student.student_name.charAt(0)}</div>}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-bold text-slate-900 truncate">{student.student_name}</p>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{student.student_code}</span>
+                                                        {hasOverride && <span className="text-[10px] font-bold bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Custom Payment</span>}
+                                                    </div>
+                                                </div>
+                                                
+                                                {/* Actions */}
+                                                {!isEditing ? (
+                                                    <div className="flex items-center gap-1">
+                                                        <div className="text-right mr-2 hidden sm:block">
+                                                            <div className="text-xs font-black text-slate-900">${payment.paid}</div>
+                                                            <div className="text-[10px] font-bold text-slate-400">Paid</div>
+                                                        </div>
+                                                        <button type="button" onClick={() => setEditingId(id)} className="p-2 hover:bg-slate-50 text-slate-400 hover:text-indigo-600 rounded-lg transition-colors">
+                                                            {/* Pencil Icon */}
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                                                        </button>
+                                                        <button type="button" onClick={() => toggleStudent(id)} className="p-2 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-colors">
+                                                            <X size={16} />
+                                                        </button>
+                                                    </div>
+                                                ) : null}
+                                            </div>
+
+                                            {/* Edit Form (Expanded) */}
+                                            {isEditing && (
+                                                <div className="p-4 border-t border-indigo-100 bg-indigo-50/30 space-y-4 animate-in slide-in-from-top-2 duration-200">
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                        <div className="space-y-1">
+                                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Total</label>
+                                                            <input 
+                                                                type="number" 
+                                                                value={payment.total} 
+                                                                onChange={(e) => {
+                                                                    const newTotal = Number(e.target.value);
+                                                                    const newDiscountAmount = (newTotal * payment.discountPercent) / 100;
+                                                                    handleSaveOverride(id, { 
+                                                                        ...payment, 
+                                                                        total: newTotal,
+                                                                        discountAmount: newDiscountAmount,
+                                                                        paid: Math.max(0, newTotal - newDiscountAmount) 
+                                                                    });
+                                                                }}
+                                                                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold focus:border-indigo-500 outline-none"
+                                                            />
+                                                        </div>
+                                                        <div className="space-y-1 relative">
+                                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Discount (%)</label>
+                                                            <div className="relative">
+                                                                <input 
+                                                                    type="number" 
+                                                                    value={payment.discountPercent} 
+                                                                    min="0"
+                                                                    max="100"
+                                                                    onChange={(e) => {
+                                                                        const newPercent = Math.min(100, Math.max(0, Number(e.target.value)));
+                                                                        const newDiscountAmount = (payment.total * newPercent) / 100;
+                                                                        handleSaveOverride(id, { 
+                                                                            ...payment, 
+                                                                            discountPercent: newPercent,
+                                                                            discountAmount: newDiscountAmount,
+                                                                            paid: Math.max(0, payment.total - newDiscountAmount) 
+                                                                        });
+                                                                    }}
+                                                                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold focus:border-indigo-500 outline-none pr-8"
+                                                                />
+                                                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">%</span>
+                                                            </div>
+                                                            <div className="text-[9px] font-bold text-slate-400 text-right mt-1">
+                                                                -${(payment.discountAmount || 0).toFixed(2)}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                        <div className="space-y-1">
+                                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Paid</label>
+                                                            <input 
+                                                                type="number" 
+                                                                value={payment.paid} 
+                                                                onChange={(e) => handleSaveOverride(id, { ...payment, paid: Number(e.target.value) })}
+                                                                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold focus:border-indigo-500 outline-none"
+                                                            />
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <label className="text-[10px] font-bold text-slate-400 uppercase">Type</label>
+                                                            <select 
+                                                                value={payment.type} 
+                                                                onChange={(e) => handleSaveOverride(id, { ...payment, type: e.target.value })}
+                                                                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold focus:border-indigo-500 outline-none bg-white"
+                                                            >
+                                                                <option value="Cash">Cash</option>
+                                                                <option value="ABA">ABA</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Payment Expired Date (Optional)</label>
+                                                        <input 
+                                                            type="date" 
+                                                            value={payment.dueDate}
+                                                            onChange={(e) => handleSaveOverride(id, { ...payment, dueDate: e.target.value })}
+                                                            className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold focus:border-indigo-500 outline-none bg-white"
+                                                        />
+                                                    </div>
+                                                    <div className="flex justify-end gap-2">
+                                                        <button type="button" onClick={() => {
+                                                            const newOverrides = { ...overrides };
+                                                            delete newOverrides[id];
+                                                            setOverrides(newOverrides);
+                                                            setEditingId(null);
+                                                        }} className="text-[10px] font-bold text-indigo-600 hover:underline px-2">
+                                                            Reset to Default
+                                                        </button>
+                                                        <button type="button" onClick={() => setEditingId(null)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700">
+                                                            Done
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                </form>
+
+                <div className="flex justify-end gap-3 p-6 border-t border-slate-100 bg-white shrink-0">
+                    <button type="button" onClick={onClose} className="px-6 py-3 rounded-xl text-slate-400 font-bold text-xs hover:bg-slate-50 transition-all">Cancel</button>
+                    <button onClick={handleAddStudent} disabled={isSubmitting} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 disabled:opacity-50 flex items-center gap-2">
+                        {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
+                        <span>Enroll {selectedStudentIds.length > 0 ? selectedStudentIds.length : ''} Student{selectedStudentIds.length !== 1 ? 's' : ''}</span>
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }
