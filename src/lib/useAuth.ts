@@ -19,7 +19,8 @@ export function useAuth() {
         try {
           const userDoc = await getDoc(doc(db, "users", currentUser.uid));
           if (userDoc.exists()) {
-            setProfile({ uid: currentUser.uid, ...userDoc.data() } as AppUser);
+            const data = userDoc.data();
+            setProfile({ uid: currentUser.uid, ...data } as AppUser);
           } else {
             setProfile(null);
           }
@@ -37,5 +38,5 @@ export function useAuth() {
     return () => unsubscribe();
   }, []);
 
-  return { user, profile, loading };
+  return { user, profile, loading, isActive: profile?.active ?? false, isSuperAdmin: profile?.role === 'superAdmin' };
 }

@@ -18,7 +18,8 @@ import {
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from "@/lib/useAuth";
 import { signOut } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { doc, updateDoc } from "firebase/firestore";
 import { Sidebar } from '@/components/layout/Sidebar';
 
 export default function AdminLayout({
@@ -26,7 +27,7 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { user, loading } = useAuth();
+  const { user, profile, loading } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false); 
   const router = useRouter();
 
@@ -89,7 +90,46 @@ export default function AdminLayout({
         {/* Scrollable Main Area */}
         <main className="flex-1 px-4 md:px-10 pb-10 relative">
            <div className="w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
-             {children}
+             {!profile?.active ? (
+               <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-6 bg-white rounded-3xl border-2 border-slate-100 shadow-sm">
+                 <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mb-6">
+                   <Bell className="text-amber-500" size={32} />
+                 </div>
+                 <h2 className="text-2xl font-bold text-slate-800 mb-2">Account Pending Approval</h2>
+                 <p className="text-slate-500 max-w-md mx-auto">
+                   Your account has been created successfully. A Super Admin needs to activate your account and assign branches before you can access the system.
+                 </p>
+                 <div className="mt-8 flex gap-4">
+                   <button 
+                     onClick={async () => {
+                       if (user?.uid) {
+                         try {
+                           await updateDoc(doc(db, "users", user.uid), {
+                             active: true,
+                             role: "superAdmin"
+                           });
+                           window.location.reload();
+                         } catch (error) {
+                           console.error("Error activating account:", error);
+                           alert("Failed to activate account. Make sure you have Firestore write permissions.");
+                         }
+                       }
+                     }}
+                     className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl transition"
+                   >
+                     Activate Account (Dev Mode)
+                   </button>
+                   <button 
+                    onClick={() => signOut(auth)}
+                    className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition"
+                   >
+                     Logout
+                   </button>
+                 </div>
+               </div>
+             ) : (
+               children
+             )}
            </div>
         </main>
       </div>

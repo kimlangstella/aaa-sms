@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BookOpen, Loader2, Calendar, Clock, Users, CheckCircle2, FileText, Filter, ArrowLeft, Download, ChevronDown, Search } from "lucide-react";
+import { useAuth } from "@/lib/useAuth";
 
 import { Term, Class, Student, Enrollment, Attendance, AttendanceStatus } from "@/lib/types";
 import { termService } from "@/services/termService";
@@ -60,6 +61,7 @@ function calculateSessionDates(
 }
 
 export default function TrackAttendancePage() {
+    const { profile } = useAuth();
     const router = useRouter();
     const searchParams = useSearchParams();
 
@@ -95,11 +97,15 @@ export default function TrackAttendancePage() {
 
     // Fetch initial data
     useEffect(() => {
-        const unsubBranches = branchService.subscribe(setBranches);
-        const unsubTerms = termService.subscribe(setTerms);
+        if (!profile) return;
+
+        const branchIds: string[] = []; // Both admin and superAdmin see all
+
+        const unsubBranches = branchService.subscribe(setBranches, branchIds);
+        const unsubTerms = termService.subscribe(setTerms, branchIds);
         const unsubPrograms = programService.subscribe(setPrograms);
-        const unsubClasses = subscribeToClasses(setClasses);
-        const unsubStudents = subscribeToStudents(setStudents);
+        const unsubClasses = subscribeToClasses(setClasses, branchIds);
+        const unsubStudents = subscribeToStudents(setStudents, branchIds);
 
         setLoading(false);
 
@@ -110,7 +116,7 @@ export default function TrackAttendancePage() {
             unsubClasses();
             unsubStudents();
         };
-    }, []);
+    }, [profile]);
 
     // Initialize from URL params or Default to Active Term
     // Initialize from URL params - Removed auto-select default

@@ -16,11 +16,13 @@ import {
   Loader2, LayoutGrid, LayoutList, Building2, Globe, Phone, MapPin, School, ArrowLeft, ArrowRight, User, Wallet, Landmark, Calendar, CalendarCheck, ChevronDown, Printer
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Student, Class, Enrollment, Branch } from "@/lib/types";
+import { Student, Class, Enrollment, Branch, InventoryItem, ProgramAddon } from "@/lib/types";
 import { subscribeToStudents, subscribeToClasses, subscribeToEnrollments, addEnrollment, deleteEnrollment, updateClass, deleteClass } from "@/lib/services/schoolService";
 import { branchService } from "@/services/branchService";
 import { programService } from "@/services/programService";
 import { termService } from "@/services/termService";
+import { inventoryService } from "@/services/inventoryService";
+import { getProgramAddons } from "@/services/programAddonService";
 import { Term } from "@/lib/types";
 import { useAuth } from "@/lib/useAuth";
 import { serverTimestamp } from "firebase/firestore";
@@ -45,7 +47,7 @@ const getPaymentStatus = (paid: number, total: number, discount: number = 0) => 
    COMPONENTS
    ========================= */
 
-function ClassCard({ cls, enrollments, onClick, onEdit, onDelete, branchName }: { cls: Class, enrollments: Enrollment[], onClick: () => void, onEdit: () => void, onDelete: () => void, branchName: string }) {
+function ClassCard({ cls, enrollments, onClick, onEdit, onDelete, branchName, role }: { cls: Class, enrollments: Enrollment[], onClick: () => void, onEdit: () => void, onDelete: () => void, branchName: string, role?: string }) {
   const { profile } = useAuth();
   const router = useRouter();
   const activeEnrollments = enrollments.filter(e => e.class_id === cls.class_id && (e.enrollment_status === 'Active' || e.enrollment_status === 'Hold'));
@@ -146,7 +148,7 @@ function ClassCard({ cls, enrollments, onClick, onEdit, onDelete, branchName }: 
   );
 }
 
-function ClassListRow({ cls, enrollments, onClick, onEdit, onDelete, branchName }: { cls: Class, enrollments: Enrollment[], onClick: () => void, onEdit: () => void, onDelete: () => void, branchName: string }) {
+function ClassListRow({ cls, enrollments, onClick, onEdit, onDelete, branchName, role }: { cls: Class, enrollments: Enrollment[], onClick: () => void, onEdit: () => void, onDelete: () => void, branchName: string, role?: string }) {
   const activeEnrollments = enrollments.filter(e => e.class_id === cls.class_id && (e.enrollment_status === 'Active' || e.enrollment_status === 'Hold'));
   const count = activeEnrollments.length;
   const capacity = cls.maxStudents || 0;
@@ -194,6 +196,15 @@ function ClassListRow({ cls, enrollments, onClick, onEdit, onDelete, branchName 
               >
                   <Pencil size={14} />
               </button>
+              {role === 'superAdmin' && (
+                  <button 
+                     onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                     className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-all"
+                     title="Delete Class"
+                  >
+                      <Trash2 size={14} />
+                  </button>
+              )}
            </div>
        </div>
     </div>
@@ -201,7 +212,7 @@ function ClassListRow({ cls, enrollments, onClick, onEdit, onDelete, branchName 
 }
 
 
-function EnrollmentCard({ enrollment, onRemove, onViewInvoice }: { enrollment: Enrollment; onRemove: () => void; onViewInvoice: () => void }) {
+function EnrollmentCard({ enrollment, onRemove, onViewInvoice, role }: { enrollment: Enrollment; onRemove: () => void; onViewInvoice: () => void; role?: string }) {
   const { profile } = useAuth();
   const student = enrollment.student;
   const isPaidAmount = getPaymentStatus(enrollment.paid_amount || 0, enrollment.total_amount || 0, enrollment.discount || 0) === 'Paid';
@@ -249,11 +260,21 @@ function EnrollmentCard({ enrollment, onRemove, onViewInvoice }: { enrollment: E
             
             <button 
                onClick={(e) => { e.stopPropagation(); onViewInvoice(); }}
-               className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+               className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 transition-all font-bold"
                title="View Invoice"
             >
                <Printer size={16} />
             </button>
+
+            {profile?.role === 'superAdmin' && (
+              <button 
+                 onClick={(e) => { e.stopPropagation(); onRemove(); }}
+                 className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-all font-bold"
+                 title="Remove Student"
+              >
+                 <Trash2 size={16} />
+              </button>
+            )}
           </div>
        </div>
     </div>
@@ -291,6 +312,7 @@ function Select({ label, children, ...props }: { label: string, children: React.
 ========================= */
 
 export default function EnrollmentsPage() {
+  const { profile } = useAuth();
   const router = useRouter();
 
   // Global State (HMR Trigger)
@@ -426,15 +448,19 @@ export default function EnrollmentsPage() {
   }, [selectedStudentIds, calculateFees]);
 
   useEffect(() => {
-    const unsubStudents = subscribeToStudents(setStudents);
-    const unsubClasses = subscribeToClasses(setClasses);
+    if (!profile) return;
+
+    const branchIds = profile.role === 'admin' ? profile.branchIds : [];
+
+    const unsubStudents = subscribeToStudents(setStudents, branchIds);
+    const unsubClasses = subscribeToClasses(setClasses, branchIds);
     const unsubEnrollments = subscribeToEnrollments((data) => {
         setEnrollments(data);
         setLoading(false);
-    });
-    const unsubBranches = branchService.subscribe(setBranches);
+    }, branchIds);
+    const unsubBranches = branchService.subscribe(setBranches, branchIds);
     const unsubPrograms = programService.subscribe(setPrograms);
-    const unsubTerms = termService.subscribe(setTerms);
+    const unsubTerms = termService.subscribe(setTerms, branchIds);
 
     return () => { 
         unsubStudents(); 
@@ -444,7 +470,7 @@ export default function EnrollmentsPage() {
         unsubPrograms();
         unsubTerms();
     };
-  }, []);
+  }, [profile]);
 
   // Filtered Classes for Grid
   const filteredClasses = useMemo(() => {
@@ -609,6 +635,10 @@ export default function EnrollmentsPage() {
   }
 
   async function handleRemoveStudent(enrollmentId: string) {
+    if (profile?.role !== 'superAdmin') {
+        alert("Only Super Administrators can remove students from classes.");
+        return;
+    }
     if (!confirm("Are you sure you want to remove this student from the class?")) return;
     try {
         await deleteEnrollment(enrollmentId);
@@ -658,6 +688,10 @@ export default function EnrollmentsPage() {
   }
 
   async function handleDeleteClass(classId: string) {
+      if (profile?.role !== 'superAdmin') {
+          alert("Only Super Administrators can delete classes.");
+          return;
+      }
       if (!confirm("Are you sure you want to delete this class? This action cannot be undone and will delete all associated enrollments.")) return;
       try {
           await deleteClass(classId);
@@ -1206,8 +1240,8 @@ function CreateClassForm({ onCancel, onSuccess }: { onCancel: () => void, onSucc
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4">
-                     <Input label="Max Student" name="maxStudents" type="number" defaultValue={20} />
-                     <Input label="Total Sessions" name="totalSessions" type="number" defaultValue={60} />
+                     <Input label="Max Student" name="maxStudents" type="number" defaultValue={10} />
+                     <Input label="Total Sessions" name="totalSessions" type="number" defaultValue={11} />
                 </div>
             </div>
 
@@ -1549,6 +1583,88 @@ function EnrollmentFormModal({
     const [isSubmitting, setIsSubmitting] = useState(false);
     const studentInputRef = useRef<HTMLInputElement>(null);
 
+    // Add-ons State
+    const [addons, setAddons] = useState<ProgramAddon[]>([]);
+    const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+    type AddonConfig = {
+        addonId: string;
+        itemId: string;
+        qty: number;
+        priceSnapshot: number;
+        nameSnapshot: string;
+    };
+    const [selectedAddons, setSelectedAddons] = useState<Record<string, AddonConfig>>({});
+
+    // Fetch Addons & Inventory
+    useEffect(() => {
+        let unsubInventory: (() => void) | undefined;
+        if (selectedClass?.programId && selectedClass?.branchId) {
+            getProgramAddons(selectedClass.programId).then(setAddons);
+            unsubInventory = inventoryService.subscribe(setInventoryItems, [selectedClass.branchId]);
+        }
+        return () => {
+            if (unsubInventory) unsubInventory();
+        }
+    }, [selectedClass]);
+
+    // Format initial selected addons based on non-optional
+    useEffect(() => {
+        if (addons.length > 0 && inventoryItems.length > 0 && Object.keys(selectedAddons).length === 0) {
+            const initial: Record<string, AddonConfig> = {};
+            addons.forEach(a => {
+                if (!a.isOptional) {
+                    const item = inventoryItems.find(i => i.id === a.itemId);
+                    if (item) {
+                        initial[a.id] = {
+                            addonId: a.id,
+                            itemId: item.id,
+                            qty: a.defaultQty || 1,
+                            priceSnapshot: item.price,
+                            nameSnapshot: a.label || item.name
+                        };
+                    }
+                }
+            });
+            setSelectedAddons(initial);
+        }
+    }, [addons, inventoryItems]);
+
+    const addonsTotal = useMemo(() => {
+        return Object.values(selectedAddons).reduce((sum, a) => sum + (a.priceSnapshot * a.qty), 0);
+    }, [selectedAddons]);
+
+    const toggleAddon = (addon: ProgramAddon, item: InventoryItem, checked: boolean) => {
+        if (checked) {
+            setSelectedAddons(prev => ({
+                ...prev,
+                [addon.id]: {
+                    addonId: addon.id,
+                    itemId: item.id,
+                    qty: addon.defaultQty || 1,
+                    priceSnapshot: item.price,
+                    nameSnapshot: addon.label || item.name
+                }
+            }));
+        } else {
+            setSelectedAddons(prev => {
+                const next = { ...prev };
+                delete next[addon.id];
+                return next;
+            });
+        }
+    };
+    
+    const updateAddonQty = (addonId: string, qty: number) => {
+        if (qty < 1) return;
+        setSelectedAddons(prev => ({
+            ...prev,
+            [addonId]: {
+                ...prev[addonId],
+                qty
+            }
+        }));
+    };
+
     // Global Payment State
     const [totalAmount, setTotalAmount] = useState(programPrice);
     const [discount, setDiscount] = useState(0);
@@ -1568,10 +1684,10 @@ function EnrollmentFormModal({
     const [overrides, setOverrides] = useState<Record<string, PaymentDetails>>({});
     const [editingId, setEditingId] = useState<string | null>(null);
 
-    // Update global total if prop changes
+    // Update global total if prop changes or addons change
     useEffect(() => {
-        setTotalAmount(programPrice);
-    }, [programPrice]);
+        setTotalAmount(programPrice + addonsTotal);
+    }, [programPrice, addonsTotal]);
 
     // Auto-set Global Due Date from Active Term
     useEffect(() => {
@@ -1657,11 +1773,22 @@ function EnrollmentFormModal({
                     term_id: termId,
                     branchId: selectedClass.branchId || '',
                     programId: selectedClass.programId || '',
-                    enrolled_at: serverTimestamp()
+                    enrolled_at: serverTimestamp(),
+                    selectedAddons: Object.values(selectedAddons),
                 });
             });
 
             await Promise.all(enrollPromises);
+
+            // Decrement Stock for selected addons
+            const addonList = Object.values(selectedAddons);
+            if (addonList.length > 0) {
+                const stockPromises = addonList.map(addon => 
+                    inventoryService.decrementStock(addon.itemId, addon.qty * selectedStudentIds.length)
+                );
+                await Promise.all(stockPromises);
+            }
+
             onSuccess();
         } catch (error) {
             console.error("Error enrolling students:", error);
@@ -1752,6 +1879,61 @@ function EnrollmentFormModal({
                             )}
                         </div>
                     </div>
+
+                    {/* Program Addons Selection */}
+                    {addons.length > 0 && inventoryItems.length > 0 && (
+                        <div className="space-y-3 p-5 rounded-xl border border-indigo-100 bg-indigo-50/30">
+                            <label className="text-xs font-black text-indigo-700 uppercase tracking-widest flex items-center gap-2">
+                                Program Add-ons
+                            </label>
+                            <div className="grid grid-cols-1 gap-3">
+                                {addons.map(addon => {
+                                    const item = inventoryItems.find(i => i.id === addon.itemId);
+                                    if (!item) return null;
+                                    const isSelected = !!selectedAddons[addon.id];
+                                    return (
+                                        <div key={addon.id} className={`flex items-center justify-between p-3.5 rounded-xl border transition-all ${isSelected ? 'border-indigo-300 bg-white shadow-sm' : 'border-slate-200 bg-white/50 opacity-70'}`}>
+                                            <label className="flex items-center gap-3 cursor-pointer flex-1">
+                                                <input 
+                                                    type="checkbox" 
+                                                    disabled={!addon.isOptional}
+                                                    checked={isSelected}
+                                                    onChange={(e) => toggleAddon(addon, item, e.target.checked)}
+                                                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                />
+                                                <div>
+                                                    <p className="text-sm font-bold text-slate-800">{addon.label || item.name}</p>
+                                                    <div className="flex items-center gap-2 mt-0.5">
+                                                        <span className="text-xs font-bold text-indigo-600">${item.price}</span>
+                                                        {addon.isRecommended && <span className="text-[9px] font-bold bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded uppercase">Recommended</span>}
+                                                        {!addon.isOptional && <span className="text-[9px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded uppercase">Required</span>}
+                                                    </div>
+                                                </div>
+                                            </label>
+                                            {isSelected && (
+                                                <div className="flex items-center gap-2 border-l border-slate-100 pl-4 w-24 ml-2">
+                                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Qty</span>
+                                                    <input 
+                                                        type="number"
+                                                        min="1"
+                                                        value={selectedAddons[addon.id].qty}
+                                                        onChange={(e) => updateAddonQty(addon.id, Number(e.target.value))}
+                                                        className="w-full px-2 py-1 text-center rounded-lg border border-slate-200 text-xs font-bold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 bg-slate-50"
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            {addonsTotal > 0 && (
+                                <div className="flex justify-between items-center pt-3 border-t border-indigo-100/50">
+                                    <span className="text-xs font-bold text-slate-500 uppercase">Add-ons Total</span>
+                                    <span className="text-sm font-black text-indigo-700">${addonsTotal.toFixed(2)}</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {/* 2. Selected Students List (Cards) */}
                     {selectedStudentIds.length > 0 && (

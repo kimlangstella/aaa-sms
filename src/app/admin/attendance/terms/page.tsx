@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Calendar, Plus, Pencil, X, Loader2, Filter, CheckCircle2, CalendarCheck, Building2, ChevronDown, DollarSign } from "lucide-react";
+import { Calendar, Plus, Pencil, X, Loader2, Filter, CheckCircle2, CalendarCheck, Building2, ChevronDown, DollarSign, Eye } from "lucide-react";
 import { Term, Branch } from "@/lib/types";
 import { termService } from "@/services/termService";
 import { branchService } from "@/services/branchService";
@@ -20,7 +20,7 @@ export default function TermsPage() {
 
     // Filter state
     const [filterBranch, setFilterBranch] = useState("");
-    const [filterStatus, setFilterStatus] = useState<"all" | "active" | "inactive">("all");
+    const [filterTermName, setFilterTermName] = useState("all");
 
     // Form state
     const [formData, setFormData] = useState({
@@ -249,13 +249,12 @@ export default function TermsPage() {
 
     const filteredTerms = terms.filter(term => {
         if (filterBranch && term.branch_id !== filterBranch) return false;
-        
-        // Status filter
-        if (filterStatus === "active" && !isTermActive(term)) return false;
-        if (filterStatus === "inactive" && isTermActive(term)) return false;
+        if (filterTermName !== "all" && term.term_name !== filterTermName) return false;
         
         return true;
     });
+
+    const uniqueTermNames = Array.from(new Set(terms.map(t => t.term_name))).sort();
 
     return (
         <div className="max-w-[1800px] mx-auto space-y-6 pb-20 px-4 md:px-0">
@@ -304,16 +303,17 @@ export default function TermsPage() {
                         <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none group-focus-within:text-indigo-500 transition-colors" size={14} />
                     </div>
 
-                    {/* Status Filter */}
+                    {/* Term Name Filter */}
                     <div className="relative group w-full sm:w-64">
                         <select
-                            value={filterStatus}
-                            onChange={(e) => setFilterStatus(e.target.value as any)}
+                            value={filterTermName}
+                            onChange={(e) => setFilterTermName(e.target.value)}
                             className="w-full !pl-14 pr-10 py-3 bg-white border border-slate-100 rounded-2xl text-xs font-black text-slate-700 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all appearance-none cursor-pointer hover:border-indigo-200 shadow-sm shadow-slate-100"
                         >
-                            <option value="all">All Term</option>
-                            <option value="active">Active Now</option>
-                            <option value="inactive">Previous & Upcoming</option>
+                            <option value="all">All Terms</option>
+                            {uniqueTermNames.map(name => (
+                                <option key={name} value={name}>{name}</option>
+                            ))}
                         </select>
                         <div className="absolute left-3.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center pointer-events-none group-focus-within:bg-amber-600 group-focus-within:text-white transition-all duration-300 shadow-sm">
                              <Filter size={14} />
@@ -373,7 +373,8 @@ export default function TermsPage() {
                                             value={formData.term_name}
                                             onChange={(e) => setFormData({ ...formData, term_name: e.target.value })}
                                             placeholder="e.g., 2026 Term 1"
-                                            className="w-full px-5 py-3 rounded-2xl border border-slate-200 bg-white text-slate-800 font-bold placeholder:text-slate-300 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                                            disabled={!!(editTerm && !isTermActive(editTerm))}
+                                            className={`w-full px-5 py-3 rounded-2xl border ${editTerm && !isTermActive(editTerm) ? 'bg-slate-50 border-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white border-slate-200 text-slate-800 placeholder:text-slate-300 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10'} font-bold outline-none transition-all`}
                                         />
                                     </div>
                                     <div>
@@ -383,7 +384,8 @@ export default function TermsPage() {
                                                 required
                                                 value={formData.status}
                                                 onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
-                                                className="w-full px-5 py-3 rounded-2xl border border-slate-200 bg-white text-slate-800 font-bold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all appearance-none cursor-pointer"
+                                                disabled={!!(editTerm && !isTermActive(editTerm))}
+                                                className={`w-full px-5 py-3 rounded-2xl border ${editTerm && !isTermActive(editTerm) ? 'bg-slate-50 border-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white border-slate-200 text-slate-800 cursor-pointer focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10'} font-bold outline-none transition-all appearance-none`}
                                             >
                                                 <option value="Upcoming">Upcoming</option>
                                                 <option value="Active">Active</option>
@@ -421,7 +423,8 @@ export default function TermsPage() {
                                             required
                                             value={formData.start_date}
                                             onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-                                            className="w-full px-5 py-3 rounded-2xl border border-slate-200 bg-white text-slate-800 font-bold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                                            disabled={!!(editTerm && !isTermActive(editTerm))}
+                                            className={`w-full px-5 py-3 rounded-2xl border ${editTerm && !isTermActive(editTerm) ? 'bg-slate-50 border-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white border-slate-200 text-slate-800 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10'} font-bold outline-none transition-all`}
                                         />
                                     </div>
                                     <div>
@@ -431,7 +434,8 @@ export default function TermsPage() {
                                             required
                                             value={formData.end_date}
                                             onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
-                                            className="w-full px-5 py-3 rounded-2xl border border-slate-200 bg-white text-slate-800 font-bold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                                            disabled={!!(editTerm && !isTermActive(editTerm))}
+                                            className={`w-full px-5 py-3 rounded-2xl border ${editTerm && !isTermActive(editTerm) ? 'bg-slate-50 border-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white border-slate-200 text-slate-800 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10'} font-bold outline-none transition-all`}
                                         />
                                     </div>
                                     <div>
@@ -442,7 +446,8 @@ export default function TermsPage() {
                                             onChange={(e) => {
                                                 setFormData({ ...formData, branch_id: e.target.value, program_ids: [] });
                                             }}
-                                            className="w-full px-5 py-3 rounded-2xl border border-slate-200 bg-white text-slate-800 font-bold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all appearance-none cursor-pointer"
+                                            disabled={!!(editTerm && !isTermActive(editTerm))}
+                                            className={`w-full px-5 py-3 rounded-2xl border ${editTerm && !isTermActive(editTerm) ? 'bg-slate-50 border-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white border-slate-200 text-slate-800 cursor-pointer focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10'} font-bold outline-none transition-all appearance-none`}
                                         >
                                             <option value="">Select Branch</option>
                                             {branches.map(b => (
@@ -478,11 +483,12 @@ export default function TermsPage() {
                                                             key={p.id}
                                                             type="button"
                                                             onClick={() => toggleProgram(p.id)}
+                                                            disabled={!!(editTerm && !isTermActive(editTerm))}
                                                             className={`
                                                                 group relative px-4 py-2 rounded-xl font-bold text-xs transition-all duration-200 transform hover:scale-105 active:scale-95
                                                                 ${isSelected 
-                                                                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 ring-2 ring-indigo-600 ring-offset-2' 
-                                                                    : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 hover:shadow-md'
+                                                                    ? (editTerm && !isTermActive(editTerm)) ? 'bg-indigo-300 text-white shadow-none cursor-not-allowed' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 ring-2 ring-indigo-600 ring-offset-2' 
+                                                                    : (editTerm && !isTermActive(editTerm)) ? 'bg-slate-50 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 hover:shadow-md'
                                                                 }
                                                             `}
                                                         >
@@ -511,13 +517,17 @@ export default function TermsPage() {
                                 </button>
                                 <button
                                     type="submit"
-                                    disabled={submitting}
-                                    className="flex-1 py-4 rounded-xl font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-xl shadow-indigo-200 transition-all flex items-center justify-center gap-2"
+                                    disabled={submitting || (editTerm !== null && editTerm.status === "Inactive")}
+                                    className={`flex-1 py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${
+                                        editTerm && editTerm.status === "Inactive"
+                                            ? 'bg-slate-100 text-slate-400 border border-slate-200 shadow-none cursor-not-allowed'
+                                            : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-xl shadow-indigo-200'
+                                    }`}
                                 >
                                     {submitting ? <Loader2 className="animate-spin" /> : (
                                         <>
                                             <CheckCircle2 size={20} />
-                                            <span>{editTerm ? "Update Term" : "Create Term"}</span>
+                                            <span>{editTerm ? (editTerm.status === "Inactive" ? "Cannot Edit Inactive Term" : "Update Term") : "Create Term"}</span>
                                         </>
                                     )}
                                 </button>
@@ -557,18 +567,38 @@ export default function TermsPage() {
                                         : 'bg-slate-50 text-slate-400 border-slate-100'
                                     }`}>
                                         <div className={`w-1.5 h-1.5 rounded-full ${isTermActive(term) ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
-                                        {isTermActive(term) ? 'Active Term' : 'Offline'}
+                                        {isTermActive(term) ? 'Active Term' : 'Inactive'}
                                     </div>
 
                                     <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                        {(() => {
+                                            const branchTerms = terms.filter(t => t.branch_id === term.branch_id);
+                                            const latestTerm = branchTerms.sort((a, b) => new Date(b.end_date).getTime() - new Date(a.end_date).getTime())[0];
+                                            if (latestTerm && latestTerm.term_id === term.term_id) {
+                                                return (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            openRolloverWizard(term);
+                                                        }}
+                                                        className="w-9 h-9 flex items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 hover:text-white hover:bg-indigo-600 hover:shadow-md border border-transparent transition-all"
+                                                        title="Move students to new term"
+                                                    >
+                                                        <CalendarCheck size={15} />
+                                                    </button>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 openEdit(term);
                                             }}
                                             className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-50 text-slate-400 hover:text-indigo-600 hover:bg-white hover:shadow-md border border-transparent hover:border-indigo-100 transition-all"
+                                            title="Edit Term"
                                         >
-                                            <Pencil size={15} />
+                                            {isTermActive(term) ? <Pencil size={15} /> : <Eye size={15} />}
                                         </button>
                                     </div>
                                 </div>
@@ -618,28 +648,6 @@ export default function TermsPage() {
                                     </div>
                                 </div>
 
-                                {/* Rollover CTA */}
-                                {(() => {
-                                    const branchTerms = terms.filter(t => t.branch_id === term.branch_id);
-                                    const latestTerm = branchTerms.sort((a, b) => new Date(b.end_date).getTime() - new Date(a.end_date).getTime())[0];
-                                    if (latestTerm && latestTerm.term_id === term.term_id) {
-                                        return (
-                                            <div className="mt-6 pt-5 border-t border-slate-100/80">
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        openRolloverWizard(term);
-                                                    }}
-                                                    className="w-full flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl bg-indigo-600 text-white font-black text-[10px] uppercase tracking-[0.15em] hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all hover:-translate-y-0.5"
-                                                >
-                                                    <CalendarCheck size={16} />
-                                                    <span>Move students to new term</span>
-                                                </button>
-                                            </div>
-                                        );
-                                    }
-                                    return null;
-                                })()}
                             </div>
                         ))}
                     </div>

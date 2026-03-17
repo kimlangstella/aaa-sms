@@ -6,19 +6,26 @@ const COLLECTION_NAME = "programs";
 
 export const programService = {
     // Get all programs
-    getAll: async (branchId?: string): Promise<any[]> => {
+    getAll: async (branchIds?: string[]): Promise<any[]> => {
         try {
             let q = query(collection(db, COLLECTION_NAME));
-            if (branchId) {
-                q = query(collection(db, COLLECTION_NAME), where("branchId", "==", branchId));
+            if (branchIds && branchIds.length > 0) {
+                // Remove orderBy to avoid composite index error
+                q = query(collection(db, COLLECTION_NAME), where("branchId", "in", branchIds));
             }
             const querySnapshot = await getDocs(q);
-            return querySnapshot.docs
-                .map((doc) => ({
-                    id: doc.id,
-                    ...doc.data(),
-                }))
-                .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""));
+            const programs = querySnapshot.docs.map((doc) => ({
+                ...doc.data(),
+                id: doc.id,
+            }));
+
+            // Client-side sort
+            if (branchIds && branchIds.length > 0) {
+                programs.sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""));
+                return programs;
+            }
+
+            return programs.sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""));
         } catch (error) {
             console.error("Error fetching programs:", error);
             return [];
@@ -59,16 +66,23 @@ export const programService = {
     },
 
     // Subscribe to real-time changes
-    subscribe: (callback: (programs: any[]) => void, branchId?: string) => {
+    subscribe: (callback: (programs: any[]) => void, branchIds?: string[]) => {
         let q = query(collection(db, COLLECTION_NAME), orderBy("name"));
-        if (branchId) {
-            q = query(collection(db, COLLECTION_NAME), where("branchId", "==", branchId), orderBy("name"));
+        if (branchIds && branchIds.length > 0) {
+            // Remove orderBy to avoid composite index error
+            q = query(collection(db, COLLECTION_NAME), where("branchId", "in", branchIds));
         }
         return onSnapshot(q, (snapshot) => {
             const programs = snapshot.docs.map((doc) => ({
-                id: doc.id,
                 ...doc.data(),
+                id: doc.id,
             }));
+
+            // Client-side sort
+            if (branchIds && branchIds.length > 0) {
+                programs.sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""));
+            }
+
             callback(programs);
         }, (error) => {
             console.error("Error subscribing to programs:", error);

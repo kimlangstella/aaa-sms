@@ -16,12 +16,23 @@ import {
   ArrowLeft,
   Check,
   X,
-  Plus
+  Plus,
+  Minus,
+  ShieldAlert,
+  AlertCircle
 } from "lucide-react";
+import { onSnapshot, collection } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { branchService } from "@/services/branchService";
 import { programService } from "@/services/programService";
-import { addStudent, uploadImage, getClasses, addEnrollment } from "@/lib/services/schoolService";
-import { Branch, Class, PaymentType } from "@/lib/types";
+import { termService } from "@/services/termService";
+import { inventoryService } from "@/services/inventoryService";
+import { productGroupService } from "@/services/productGroupService";
+import * as programAddonService from "@/services/programAddonService";
+import { addStudent, uploadImage, getClasses, addEnrollment, checkPhoneDuplicate, getStudents } from "@/lib/services/schoolService";
+import { Branch, Class, PaymentType, ProgramAddon, InventoryItem, EnrollmentAddon, Term, Student } from "@/lib/types";
+import { Toast } from "@/components/ui/Toast";
+import { useAuth } from "@/lib/useAuth";
 
 interface AddStudentModalProps {
     isOpen: boolean;
@@ -30,12 +41,14 @@ interface AddStudentModalProps {
 }
 
 export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalProps) {
+  const { profile } = useAuth();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   
   // Step State
   const [currentStep, setCurrentStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [toast, setToast] = useState<{ isVisible: boolean, message: string, type: 'success' | 'error' | 'loading' }>({ isVisible: false, message: '', type: 'success' });
   
   // Form Data State
   const [formData, setFormData] = useState({
@@ -78,8 +91,16 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
       program_id: "",
       class_id: "",
       start_session: "",
+      include_next_term: false,
       admission_date: new Date().toISOString().split('T')[0]
   });
+
+  // Add-ons State
+  const [inventoryItems, setInventoryItems] = useState<Record<string, InventoryItem> | null>(null);
+  const [productGroups, setProductGroups] = useState<Record<string, string>>({}); // id -> name map
+  const [programAddons, setProgramAddons] = useState<ProgramAddon[]>([]);
+  const [selectedAddons, setSelectedAddons] = useState<any[]>([]);
+  const [terms, setTerms] = useState<Term[]>([]);
 
   // Image State
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -87,17 +108,61 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
 
   const [validationErrors, setValidationErrors] = useState<{ [key: string]: string }>({});
 
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicateStudents, setDuplicateStudents] = useState<Student[]>([]);
+  const [duplicateCheck, setDuplicateCheck] = useState<{
+      isChecking: boolean;
+      exists: boolean;
+      message: string;
+      type: 'name' | 'phone';
+      bypass: boolean;
+  }>({ isChecking: false, exists: false, message: "", type: 'name', bypass: false });
+
   const validatePhone = (phone: string) => {
+      // Allow empty string if it's not a required field, otherwise validate
+      if (!phone) return true;
+      // Allow 9 or 10 digits starting with 0, ignoring spaces or dashes
+      const cleanPhone = phone.replace(/[\s-]/g, '');
       const phoneRegex = /^0\d{8,9}$/; 
-      return phoneRegex.test(phone.replace(/\s/g, ''));
+      return phoneRegex.test(cleanPhone);
   };
 
   useEffect(() => {
-    if (isOpen) {
-        const unsub = branchService.subscribe(setBranches);
-        return () => unsub();
-    }
-  }, [isOpen]);
+    if (!isOpen || !profile) return;
+    
+    const branchIds = profile.role === 'admin' ? profile.branchIds : [];
+    
+    // 1. Subscribe to Branches (Wait for profile)
+    const unsubBranches = branchService.subscribe(setBranches, branchIds);
+    
+    // 2. Subscribe to Terms
+    const unsubTerms = termService.subscribe(setTerms, branchIds);
+
+    // 3. Subscribe to ALL Inventory for add-on resolution
+    const unsubInventory = inventoryService.subscribe((items) => {
+        const itemMap: Record<string, InventoryItem> = {};
+        items.forEach(item => {
+            if (item.id) itemMap[item.id] = item;
+        });
+        setInventoryItems(itemMap);
+    }, undefined); // Bypass branch filter for resolution
+
+    // 4. Subscribe to ALL Product Groups (for name resolution)
+    const unsubGroups = productGroupService.subscribe((groups) => {
+        const groupMap: Record<string, string> = {};
+        groups.forEach(g => {
+            if (g.id) groupMap[g.id] = g.name;
+        });
+        setProductGroups(groupMap);
+    }, undefined);
+
+    return () => {
+        unsubBranches();
+        unsubTerms();
+        unsubInventory();
+        unsubGroups();
+    };
+  }, [isOpen, profile]);
 
   // Fetch classes when branch changes
   useEffect(() => {
@@ -107,7 +172,7 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
      
      if (formData.branch_id) {
          // Fetch Programs
-         programService.getAll(formData.branch_id).then(setPrograms).catch(console.error);
+         programService.getAll([formData.branch_id]).then(setPrograms).catch(console.error);
          // Classes will be fetched when program is selected in sub-modal or we can fetch all for branch
          getClasses(formData.branch_id).then(setClasses).catch(console.error); 
      } else {
@@ -119,8 +184,162 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
   // Update total amount when selectedPrograms changes
   useEffect(() => {
       const total = selectedPrograms.reduce((acc, curr) => acc + (curr.price || 0), 0);
-      setFormData(prev => ({ ...prev, total_amount: total.toString() }));
+      setFormData(prev => ({ ...prev, total_amount: total.toFixed(2) }));
   }, [selectedPrograms]);
+
+  // Discount State (Percentage Only)
+  const [discountInput, setDiscountInput] = useState("0");
+
+  // Recalculate Discount Amount when Total or Input (Percentage) changes
+  useEffect(() => {
+      const total = Number(formData.total_amount) || 0;
+      const inputPercent = Number(discountInput) || 0;
+      
+      // Calculate amount based on percentage
+      const calculatedDiscount = total * (inputPercent / 100);
+
+      // Update formData.discount (actual dollar amount), fixed to 2 decimals
+      setFormData(prev => ({ ...prev, discount: calculatedDiscount.toFixed(2) }));
+  }, [formData.total_amount, discountInput]);
+
+  // Fetch Add-ons when a program is selected in the sub-modal
+  useEffect(() => {
+      if (newProgramData.program_id) {
+          programAddonService.getProgramAddons(newProgramData.program_id)
+              .then((addons: ProgramAddon[]) => {
+                  // Sort them
+                  addons.sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
+                  setProgramAddons(addons);
+                  
+                  // Auto-select required items, or recommended ones
+                  const initialSelected = addons.map(addon => {
+                      const item = inventoryItems ? inventoryItems[addon.itemId] : undefined;
+                      const groupName = item?.groupId ? productGroups[item.groupId] : "";
+                      
+                      let name = addon.label || "";
+                      if (!name && item) {
+                          name = groupName ? `${item.name} ${groupName}` : item.name;
+                      }
+
+                      // If we don't have a name yet and inventory is still loading, we'll wait
+                      if (!name && inventoryItems === null) {
+                          return null;
+                      }
+
+                      return {
+                          itemId: addon.itemId,
+                          nameSnapshot: name || (inventoryItems === null ? `Loading...` : `Unknown Item (${addon.itemId.substring(0,6)})`),
+                          priceSnapshot: item?.price || 0,
+                          qty: addon.defaultQty || 1,
+                          // Add a temporary "selected" flag for UI checking
+                          selected: !addon.isOptional || addon.isRecommended
+                      };
+                  }).filter(a => a !== null && a.selected) as any[];
+                  
+                  setSelectedAddons(initialSelected);
+              })
+              .catch(console.error);
+      } else {
+          setProgramAddons([]);
+          setSelectedAddons([]);
+      }
+  }, [newProgramData.program_id, inventoryItems]);
+  
+  // When a class or admission date is selected, auto-fetch the session passed
+  useEffect(() => {
+    const fetchSession = async () => {
+        if (newProgramData.class_id && terms.length > 0) {
+            const cls = classes.find(c => c.class_id === newProgramData.class_id);
+            const activeTerm = terms.find(t => 
+                newProgramData.admission_date >= t.start_date && 
+                newProgramData.admission_date <= t.end_date
+            ) || terms.find(t => t.status === 'Active');
+
+            if (cls && activeTerm) {
+                const classTotalSessions = cls.totalSessions || 11;
+                
+                const [aYear, aMonth, aDay] = newProgramData.admission_date.split('-').map(Number);
+                const [sYear, sMonth, sDay] = activeTerm.start_date.split('-').map(Number);
+                
+                const admission = new Date(aYear, aMonth - 1, aDay);
+                const start = new Date(sYear, sMonth - 1, sDay);
+                
+                let passed = 0;
+                if (admission > start) {
+                    const diffMs = admission.getTime() - start.getTime();
+                    // Use ceil to count the partial week as passed
+                    passed = Math.ceil(diffMs / (7 * 24 * 60 * 60 * 1000));
+                }
+
+                // FM Branch logic: Default to 11 if it's an FM branch
+                const activeBranch = branches.find(b => b.branch_id === formData.branch_id);
+                const isFM = activeBranch?.branch_name?.toUpperCase().includes("FM");
+
+                let sessionsToEnroll = Math.max(1, classTotalSessions - passed);
+
+                if (isFM) {
+                    sessionsToEnroll = classTotalSessions; // Default to 11 for FM
+                }
+
+                setNewProgramData(prev => ({ ...prev, start_session: sessionsToEnroll.toString() }));
+            }
+        }
+    };
+    fetchSession();
+  }, [newProgramData.class_id, newProgramData.admission_date, terms, classes]);
+
+  const toggleAddon = (addon: ProgramAddon) => {
+      const isSelected = selectedAddons.some(a => a.itemId === addon.itemId);
+      if (isSelected) {
+          if (!addon.isOptional) return; // Cannot unselect required items
+          setSelectedAddons(prev => prev.filter(a => a.itemId !== addon.itemId));
+      } else {
+          const item = inventoryItems ? inventoryItems[addon.itemId] : undefined;
+          const groupName = item?.groupId ? productGroups[item.groupId] : "";
+          
+          let name = addon.label || "";
+          if (!name && item) {
+              name = groupName ? `${item.name} ${groupName}` : item.name;
+          }
+
+          setSelectedAddons(prev => [...prev, {
+              itemId: addon.itemId,
+              nameSnapshot: name || (inventoryItems === null ? `Loading...` : `Unknown Item (${addon.itemId.substring(0,6)})`),
+              priceSnapshot: item?.price || 0,
+              qty: addon.defaultQty || 1,
+              selected: true
+          } as any]);
+      }
+  };
+
+  const updateAddonQuantity = (itemId: string, delta: number) => {
+      setSelectedAddons(prev => prev.map((a: any) => {
+          if (a.itemId === itemId) {
+              const currentQty = (a.qty || a.quantity) || 1;
+              const newQty = Math.max(1, currentQty + delta);
+              return { ...a, qty: newQty };
+          }
+          return a;
+      }));
+  };
+
+  const updateAddonPrice = (itemId: string, price: number) => {
+      setSelectedAddons(prev => prev.map((a: any) => {
+          if (a.itemId === itemId) {
+              return { ...a, priceSnapshot: price };
+          }
+          return a;
+      }));
+  };
+
+  const updateAddonVariant = (itemId: string, variantId: string) => {
+      setSelectedAddons(prev => prev.map((a: any) => {
+          if (a.itemId === itemId) {
+              return { ...a, variantId };
+          }
+          return a;
+      }));
+  };
 
   const handleAddProgram = () => {
       if (!newProgramData.program_id || !newProgramData.class_id || !newProgramData.start_session) {
@@ -144,13 +363,34 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
               feePerSession = Number(program.price) / totalSessions;
           }
 
-          const calculatedPrice = feePerSession * remainingSessions;
+          let calculatedPrice = feePerSession * remainingSessions;
+          
+          console.log(`Modal Calculation: ${feePerSession} * ${remainingSessions} = ${calculatedPrice}`);
+
+          // Add next term if selected (full program price)
+          if (newProgramData.include_next_term) {
+               calculatedPrice += Number(program.price);
+          }
+          
+          // Calculate add-ons price
+          const addonsTotal = selectedAddons.reduce((sum, a: any) => sum + ((a.priceSnapshot || a.price || 0) * (a.qty || a.quantity || 1)), 0);
+          calculatedPrice += addonsTotal;
 
           setSelectedPrograms(prev => [...prev, {
               ...newProgramData,
               program_name: program.name, 
-              class_name: cls.className,
-              price: Number(calculatedPrice.toFixed(2)) // Store as number for total calc
+              class_name: `${cls.days?.join(', ')} (${cls.startTime} - ${cls.endTime})`,
+              total_sessions: totalSessions,
+              sessions_to_enroll: remainingSessions,
+              price: Number(calculatedPrice.toFixed(2)), 
+              include_next_term: newProgramData.include_next_term,
+              selectedAddons: selectedAddons.map(a => ({
+                  itemId: a.itemId,
+                  nameSnapshot: a.nameSnapshot || a.name,
+                  priceSnapshot: a.priceSnapshot || a.price,
+                  qty: a.qty || a.quantity,
+                  variantId: a.variantId
+              }))
           }]);
           
           // Reset and close
@@ -158,8 +398,11 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
               program_id: "",
               class_id: "",
               start_session: "",
+              include_next_term: false,
               admission_date: new Date().toISOString().split('T')[0]
           });
+          setProgramAddons([]);
+          setSelectedAddons([]);
           setIsAddingProgram(false);
       }
   };
@@ -215,9 +458,63 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
       return Object.keys(errors).length === 0;
   };
 
-  const nextStep = () => {
+  const nextStep = async () => {
       if (!validateStep(currentStep)) return;
-      if (currentStep < 3) setCurrentStep(prev => prev + 1);
+      
+      if (currentStep === 1) {
+          if (duplicateCheck.bypass) {
+              setDuplicateCheck(prev => ({ ...prev, bypass: false }));
+              setCurrentStep(prev => prev + 1);
+              return;
+          }
+
+          const studentName = `${formData.first_name} ${formData.last_name}`.trim();
+          
+          try {
+              setDuplicateCheck(prev => ({ ...prev, isChecking: true }));
+              
+              // 1. Check Phone
+              const phoneDupes = await checkPhoneDuplicate(formData.parent_phone);
+              if (phoneDupes.length > 0) {
+                  setDuplicateStudents(phoneDupes as any);
+                  setDuplicateCheck({ 
+                      isChecking: false, 
+                      exists: true, 
+                      message: `A student is already registered with the phone number ${formData.parent_phone}.`, 
+                      type: 'phone',
+                      bypass: false
+                  });
+                  setShowDuplicateModal(true);
+                  return;
+              }
+
+              // 2. Check Name
+              const allStudents = await getStudents([formData.branch_id]);
+              const nameDupes = allStudents.filter(s => s.student_name?.toLowerCase() === studentName.toLowerCase());
+              if (nameDupes.length > 0) {
+                  setDuplicateStudents(nameDupes as any);
+                  setDuplicateCheck({ 
+                      isChecking: false, 
+                      exists: true, 
+                      message: `A student named "${studentName}" is already in the system.`, 
+                      type: 'name',
+                      bypass: false
+                  });
+                  setShowDuplicateModal(true);
+                  return;
+              }
+          } catch (error) {
+              console.error("Error checking duplicates:", error);
+          } finally {
+              setDuplicateCheck(prev => ({ ...prev, isChecking: false }));
+          }
+      }
+
+      if (currentStep < 3) {
+          if (currentStep === 1) setToast({ isVisible: true, message: "Student information validated. Please proceed to enrollment.", type: 'success' });
+          if (currentStep === 2) setToast({ isVisible: true, message: "Enrollment details validated. Please proceed to payment.", type: 'success' });
+          setCurrentStep(prev => prev + 1);
+      }
   };
 
   const prevStep = () => {
@@ -229,6 +526,16 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
       setSubmitting(true);
 
       try {
+          // 0. Check for duplicates (only if not already confirmed)
+          if (!duplicateCheck.bypass) {
+              const phoneDupes = await checkPhoneDuplicate(formData.parent_phone);
+              if (phoneDupes.length > 0) {
+                    setDuplicateStudents(phoneDupes as any);
+                    setDuplicateCheck({ isChecking: false, exists: true, message: `Phone number ${formData.parent_phone} already exists.`, type: 'phone', bypass: false });
+                    setShowDuplicateModal(true);
+                    return;
+              }
+          }
           
           // 1. Upload Image
           let imageUrl = "";
@@ -296,7 +603,8 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
                   payment_type: formData.payment_type,
                   enrollment_status: 'Active',
                   start_session: Number(prog.start_session),
-                  term: '2026-T1' // TODO: Dynamic Term
+                  term: '2026-T1', // TODO: Dynamic Term
+                  selectedAddons: prog.selectedAddons || []
               };
               
               // Simple "Allocated Payment" logic for now:
@@ -319,7 +627,10 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
               await addEnrollment(enrollmentPayload);
           }
 
-          onSuccess();
+          setToast({ isVisible: true, message: "Student admitted successfully!", type: 'success' });
+          setTimeout(() => {
+              onSuccess();
+          }, 1500);
           
       } catch (error) {
           console.error("Error creating student:", error);
@@ -367,6 +678,8 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
                     <X size={24} />
                 </button>
             </div>
+
+            <Toast isVisible={toast.isVisible} message={toast.message} type={toast.type} onClose={() => setToast({ ...toast, isVisible: false })} />
 
             {/* Content Scroll Area */}
             <div className="overflow-y-auto flex-1 p-6 md:p-10 bg-slate-50/50">
@@ -493,6 +806,11 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
                                             <div>
                                                 <h4 className="font-bold text-slate-800 text-sm">{prog.program_name}</h4>
                                                 <p className="text-xs text-slate-500">Class: {prog.class_name} • Session: {prog.start_session}</p>
+                                                {prog.selectedAddons && prog.selectedAddons.length > 0 && (
+                                                    <p className="text-[10px] text-slate-400 mt-1">
+                                                        Add-ons: {prog.selectedAddons.map((a: any) => `${a.qty}x ${a.nameSnapshot}`).join(', ')}
+                                                    </p>
+                                                )}
                                                 <p className="text-xs text-indigo-600 font-bold mt-1">${prog.price}</p>
                                             </div>
                                             <button 
@@ -519,9 +837,10 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
                                     </button>
                                 </div>
 
-                                 <Select label="Global Status" name="status" value={formData.status} onChange={handleInputChange} required>
+                                 <Select label="Status" name="status" value={formData.status} onChange={handleInputChange} required>
                                     <option value="Active">Active</option>
                                     <option value="Hold">Hold</option>
+                                    <option value="Inactive">Inactive</option>
                                 </Select>
                             </div>
                         </div>
@@ -541,7 +860,9 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
                                         required
                                     >
                                         <option value="">Select Program</option>
-                                        {programs.map(p => (
+                                        {programs
+                                            .filter(p => !selectedPrograms.some(sp => sp.program_id === p.id) || p.id === newProgramData.program_id)
+                                            .map(p => (
                                             <option key={p.id} value={p.id}>{p.name} (${p.price})</option>
                                         ))}
                                     </Select>
@@ -552,28 +873,168 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
                                         value={newProgramData.class_id} 
                                         onChange={(e: any) => setNewProgramData(prev => ({ ...prev, class_id: e.target.value }))}
                                         required
+                                        disabled={!newProgramData.program_id}
                                     >
                                         <option value="">Select Class</option>
                                         {classes
-                                           // Filter classes by program if needed, or just show all for branch
-                                           // Ideally filter by program if link exists
-                                           .filter(c => !newProgramData.program_id || c.programId === newProgramData.program_id) 
-                                           .map(c => (
-                                            <option key={c.class_id} value={c.class_id}>{c.className}</option>
+                                           .filter(c => c.programId === newProgramData.program_id) 
+                                           .map(cls => (
+                                             <option key={cls.class_id} value={cls.class_id}>
+                                                {cls.days?.join(', ')} ({cls.startTime} - {cls.endTime})
+                                             </option>
                                         ))}
                                     </Select>
 
-                                    <Input 
-                                        label="Start Session" 
-                                        name="start_session" 
-                                        type="number" 
-                                        value={newProgramData.start_session} 
-                                        onChange={(e: any) => setNewProgramData(prev => ({ ...prev, start_session: e.target.value }))} 
-                                        placeholder="e.g. 1" 
-                                        required 
-                                    />
+                                    <div className="space-y-1">
+                                        <Input 
+                                            label="Session" 
+                                            name="start_session" 
+                                            type="number" 
+                                            value={newProgramData.start_session} 
+                                            onChange={(e: any) => setNewProgramData(prev => ({ ...prev, start_session: e.target.value }))} 
+                                            placeholder="e.g. 1" 
+                                            required 
+                                        />
+                                        {newProgramData.class_id && (
+                                            <p className="text-[10px] text-slate-400 font-medium ml-1">
+                                                (Sessions already started: {Math.max(0, (parseInt(newProgramData.start_session) || 1) - 1)})
+                                            </p>
+                                        )}
+                                    </div>
                                 </div>
-                                <div className="flex justify-end gap-2 pt-2">
+
+                                {/* Custom Checkbox Card */}
+                                <div 
+                                    onClick={() => setNewProgramData(prev => ({ ...prev, include_next_term: !prev.include_next_term }))}
+                                    className={`p-4 rounded-xl border-2 transition-all cursor-pointer flex items-start gap-4 mt-4 ${
+                                        newProgramData.include_next_term 
+                                            ? 'bg-indigo-50/50 border-indigo-200' 
+                                            : 'bg-white border-slate-100 hover:border-indigo-100 hover:bg-slate-50'
+                                    }`}
+                                >
+                                    <div className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all flex-shrink-0 ${
+                                        newProgramData.include_next_term 
+                                            ? 'bg-indigo-600 border-indigo-600' 
+                                            : 'bg-white border-slate-300'
+                                    }`}>
+                                        {newProgramData.include_next_term && <Check size={12} className="text-white" strokeWidth={4} />}
+                                    </div>
+                                <div>
+                                    <p className={`text-sm font-bold ${newProgramData.include_next_term ? 'text-indigo-900' : 'text-slate-700'}`}>
+                                        Include Next Term Fee?
+                                    </p>
+                                    <p className={`text-xs mt-0.5 ${newProgramData.include_next_term ? 'text-indigo-600' : 'text-slate-500'}`}>
+                                        Automatically add the fee for the upcoming term to this invoice.
+                                    </p>
+                                </div>
+                            </div>
+                            
+                            {/* Program Add-ons Section */}
+                            {programAddons.length > 0 && (
+                                <div className="pt-4 border-t border-slate-100">
+                                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">Required & Recommended Materials</h4>
+                                    <div className="space-y-2">
+                                        {programAddons.map((addon, idx) => {
+                                            const item = inventoryItems ? inventoryItems[addon.itemId] : undefined;
+                                            const groupName = item?.groupId ? productGroups[item.groupId] : "";
+                                            let addonName = addon.label || "";
+                                            if (!addonName && item) {
+                                                addonName = groupName ? `${item.name} ${groupName}` : item.name;
+                                            }
+                                            if (!addonName) {
+                                                addonName = inventoryItems === null ? `Loading...` : `Deleted Item`;
+                                            }
+                                            const selectedItem = selectedAddons.find(a => a.itemId === addon.itemId);
+                                            const isSelected = !!selectedItem;
+                                            const selection = selectedItem as any; // Cast for easier access to qty/priceSnapshot
+                                            const variants = item?.attributes?.variants || [];
+
+                                            return (
+                                                <div key={idx} className={`p-4 rounded-xl border-2 transition-all flex flex-col gap-3 group ${isSelected ? 'border-indigo-500 bg-indigo-50/50' : 'border-slate-100 hover:border-slate-300 bg-white'}`}>
+                                                    <div className="flex items-center justify-between min-w-0 w-full gap-4">
+                                                        <label className="flex items-center gap-3 cursor-pointer min-w-0" onClick={() => toggleAddon(addon)}>
+                                                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all flex-shrink-0 ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300'}`}>
+                                                                {isSelected && <Check size={14} className="text-white" strokeWidth={3} />}
+                                                            </div>
+                                                            <div className="flex flex-col min-w-0 leading-tight">
+                                                                <span className="text-sm font-bold text-slate-700 truncate">{addonName}</span>
+                                                                {!addon.isOptional && <span className="text-[10px] font-bold text-rose-500 mt-0.5">Required</span>}
+                                                            </div>
+                                                        </label>
+                                                        
+                                                        <div className="flex items-center justify-end gap-3 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                            {/* Editable Price */}
+                                                            {isSelected ? (
+                                                                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-xl border border-indigo-100 shadow-sm transition-all focus-within:border-indigo-500 focus-within:ring-4 focus-within:ring-indigo-500/10">
+                                                                    <span className="text-xs font-black text-indigo-400">$</span>
+                                                                    <input 
+                                                                        type="number"
+                                                                        value={selection?.priceSnapshot || 0}
+                                                                        onChange={(e) => updateAddonPrice(addon.itemId, Number(e.target.value))}
+                                                                        className="w-10 bg-transparent border-none outline-none text-sm font-black text-indigo-600 p-0 focus:ring-0 text-center"
+                                                                        min="0"
+                                                                        step="0.01"
+                                                                    />
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex items-center gap-1 px-2">
+                                                                    <span className="text-xs font-bold text-slate-400">$</span>
+                                                                    <span className="text-sm font-bold text-slate-700">{item?.price || 0}</span>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Quantity Controls */}
+                                                            {isSelected && (
+                                                                <div className="flex items-center bg-white rounded-xl border border-indigo-100 p-1 shadow-sm">
+                                                                    <button 
+                                                                        type="button"
+                                                                        onClick={() => updateAddonQuantity(addon.itemId, -1)}
+                                                                        className="w-6 h-6 rounded-md hover:bg-slate-50 text-slate-400 flex items-center justify-center transition-colors"
+                                                                    >
+                                                                        <span className="text-lg font-bold leading-none mb-0.5">-</span>
+                                                                    </button>
+                                                                    <span className="w-6 text-center text-xs font-black text-indigo-900">
+                                                                        {selection?.qty || 1}
+                                                                    </span>
+                                                                    <button 
+                                                                        type="button"
+                                                                        onClick={() => updateAddonQuantity(addon.itemId, 1)}
+                                                                        className="w-6 h-6 rounded-md hover:bg-slate-50 text-slate-400 flex items-center justify-center transition-colors"
+                                                                    >
+                                                                        <span className="text-base font-bold leading-none mb-0.5">+</span>
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Variant Selection Dropdown */}
+                                                    {isSelected && variants.length > 0 && (
+                                                        <div className="pt-2 border-t border-indigo-100 mt-1" onClick={(e) => e.stopPropagation()}>
+                                                            <div className="relative">
+                                                                <select 
+                                                                    value={selection?.variantId || ""}
+                                                                    onChange={(e) => updateAddonVariant(addon.itemId, e.target.value)}
+                                                                    className="w-full text-xs font-bold p-2.5 pl-3 pr-8 border border-slate-200 rounded-lg text-slate-700 bg-white appearance-none outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all cursor-pointer"
+                                                                >
+                                                                    <option value="" disabled>Select Size / Variant...</option>
+                                                                    {variants.map((v: any) => (
+                                                                        <option key={v.id} value={v.id}>{v.name} ({v.stock} left)</option>
+                                                                    ))}
+                                                                </select>
+                                                                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex justify-end gap-2 pt-2 mt-4">
                                     <button 
                                         onClick={() => setIsAddingProgram(false)}
                                         className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-lg font-bold text-xs"
@@ -590,33 +1051,53 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
                             </div>
                          </div>
                     )}
-
-                    {currentStep === 2 && null /* Consuming the closing brace of step 2 block in replaced content */ }
-
+                    
                     {/* STEP 3: Payment */}
                     {currentStep === 3 && (
                          <div className="max-w-2xl mx-auto bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
                              <div className="flex items-center gap-3 pb-4 border-b border-slate-50">
-                                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-sm">
+                                <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shadow-sm">
                                     <CreditCard size={24} />
                                 </div>
                                  <div>
-                                    <h3 className="text-xl font-bold text-slate-800">Initial Payment</h3>
+                                    <h3 className="text-xl font-bold text-slate-800">Payment</h3>
                                     <p className="text-sm text-slate-400 font-medium">Process the first payment for enrollment</p>
                                 </div>
                             </div>
 
                             <div className="grid grid-cols-1 gap-6">
-                                 <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 mb-2">
-                                     <div className="flex justify-between items-center mb-2">
-                                         <span className="text-slate-500 font-bold text-sm">Total Fee</span>
-                                         <span className="text-lg font-black text-slate-800">${formData.total_amount}</span>
-                                     </div>
+                                 <div className="bg-indigo-600 p-6 rounded-2xl flex justify-between items-center text-white shadow-xl shadow-indigo-200/50 mb-4">
+                                     <span className="font-medium opacity-90 text-sm">Total Tuition Fee</span>
+                                     <span className="text-2xl font-black">${formData.total_amount}</span>
                                  </div>
                                  
                                  <div className="grid grid-cols-2 gap-6">
                                     <Input label="Total Amount ($)" name="total_amount" type="number" value={formData.total_amount} onChange={handleInputChange} required />
-                                    <Input label="Discount ($)" name="discount" type="number" value={formData.discount} onChange={handleInputChange} />
+                                    
+                                    <div className="space-y-2">
+                                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1 flex items-center justify-between">
+                                            <span>Discount</span>
+                                        </label>
+                                        <div className="relative">
+                                             <input 
+                                                type="number" 
+                                                value={discountInput}
+                                                onChange={(e) => setDiscountInput(e.target.value)}
+                                                className="w-full px-4 py-3.5 rounded-xl bg-white border border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-semibold text-sm text-slate-700 placeholder:text-slate-300 shadow-sm"
+                                                placeholder="e.g. 10"
+                                                min="0"
+                                                max="100"
+                                             />
+                                             <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 pointer-events-none">
+                                                 <span className="text-indigo-600 font-black text-lg">%</span>
+                                                 {Number(formData.discount) > 0 && (
+                                                    <span className="text-white font-bold text-xs bg-indigo-600 px-2.5 py-1 rounded-md shadow-sm shadow-indigo-200">
+                                                        -${Number(formData.discount).toFixed(2)}
+                                                    </span>
+                                                 )}
+                                             </div>
+                                        </div>
+                                    </div>
                                  </div>
 
                                 <div className="grid grid-cols-2 gap-6">
@@ -681,6 +1162,82 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
                 </div>
             </div>
 
+            {showDuplicateModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="p-6 bg-amber-50 border-b border-amber-100 flex items-start gap-4">
+                            <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                                <ShieldAlert size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-bold text-slate-800">
+                                    {duplicateCheck.type === 'phone' ? 'Phone Number Already Exists' : 'Duplicate Student Detected'}
+                                </h3>
+                                <p className="text-slate-500 text-sm mt-1">
+                                    {duplicateCheck.type === 'phone' 
+                                        ? duplicateCheck.message 
+                                        : `We found students with the name "${formData.first_name} ${formData.last_name}" already in the system.`
+                                    }
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto flex-1">
+                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Existing Records</h4>
+                            <div className="space-y-3">
+                                {duplicateStudents.map((stu) => (
+                                    <div key={stu.student_id} className="flex items-center gap-4 p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                                         <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden border border-white shadow-sm">
+                                            {stu.image_url ? (
+                                                <img src={stu.image_url} alt="" className="w-full h-full object-cover" />
+                                            ) : (
+                                                <User size={20} className="text-slate-400" />
+                                            )}
+                                        </div>
+                                        <div className="flex-1">
+                                            <div className="flex justify-between items-start">
+                                                <h5 className="font-bold text-slate-800">{stu.student_name}</h5>
+                                                <span className="text-[10px] font-bold bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">{stu.student_code}</span>
+                                            </div>
+                                            <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                                                <span>{stu.gender}</span>
+                                                <span>•</span>
+                                                <span>{stu.dob}</span>
+                                                <span>•</span>
+                                                <span>{stu.phone}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+                            <button
+                                onClick={() => { 
+                                    setDuplicateCheck(prev => ({ ...prev, bypass: true }));
+                                    setShowDuplicateModal(false);
+                                    if (currentStep === 1) {
+                                        setCurrentStep(2);
+                                        setToast({ isVisible: true, message: "Proceeding with duplicate details...", type: 'success' });
+                                    } else {
+                                        handleSubmit({ preventDefault: () => {} } as any);
+                                    }
+                                }}
+                                className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-colors w-full"
+                            >
+                                Register Anyway
+                            </button>
+                            <button
+                                onClick={() => { setShowDuplicateModal(false); setSubmitting(false); }}
+                                className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-50 hover:text-slate-900 transition-colors w-full"
+                            >
+                                Close & Edit Details
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     </div>
   );
@@ -752,17 +1309,18 @@ function Input({ label, name, type = "text", required, placeholder, value, onCha
     )
 }
 
-function Select({ label, name, required, children, value, onChange }: any) {
+function Select({ label, name, required, children, value, onChange, disabled }: any) {
     return (
         <div className="space-y-2">
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">{label} {required && <span className="text-rose-500">*</span>}</label>
-            <div className="relative">
+            <div className={`relative ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
                 <select 
                     name={name} 
                     required={required} 
                     value={value}
                     onChange={onChange}
-                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border-transparent focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-semibold text-sm text-slate-700 appearance-none cursor-pointer"
+                    disabled={disabled}
+                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border-transparent focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-semibold text-sm text-slate-700 appearance-none cursor-pointer disabled:cursor-not-allowed"
                 >
                     {children}
                 </select>

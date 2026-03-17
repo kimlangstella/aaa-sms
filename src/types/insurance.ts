@@ -12,6 +12,7 @@ export interface InsurancePolicy {
     endDate: string;   // ISO Date string
     status: InsuranceStatus;
     coverageAmount: number;
+    claimedAmount: number;
     premiumAmount: number;
     qrCodeUrl?: string; // For digital card verification
 }

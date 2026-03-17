@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { AttendanceStatus, Attendance } from "@/lib/types";
 import { X, Check } from "lucide-react";
+import { useAuth } from "@/lib/useAuth";
 
 interface AttendanceCellProps {
   record?: Attendance;
@@ -11,6 +12,7 @@ interface AttendanceCellProps {
 }
 
 export function AttendanceCell({ record, onChange, readOnly }: AttendanceCellProps) {
+  const { profile } = useAuth();
   const [selectedStatus, setSelectedStatus] = useState<string>("");
   const [showNotePopup, setShowNotePopup] = useState(false);
   const [noteValue, setNoteValue] = useState("");

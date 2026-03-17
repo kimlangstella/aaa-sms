@@ -1,19 +1,29 @@
 import { db } from "@/lib/firebase";
 import { Branch } from "@/lib/types";
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, onSnapshot } from "firebase/firestore";
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, onSnapshot, where, documentId } from "firebase/firestore";
 
 const COLLECTION_NAME = "branches";
 
 export const branchService = {
     // Get all branches
-    getAll: async (): Promise<Branch[]> => {
+    getAll: async (branchIds?: string[]): Promise<Branch[]> => {
         try {
-            const q = query(collection(db, COLLECTION_NAME), orderBy("branch_name"));
+            let q = query(collection(db, COLLECTION_NAME), orderBy("branch_name"));
+            if (branchIds && branchIds.length > 0) {
+                // Remove orderBy to bypass the need for a composite index
+                q = query(collection(db, COLLECTION_NAME), where(documentId(), "in", branchIds));
+            }
             const querySnapshot = await getDocs(q);
-            return querySnapshot.docs.map((doc) => ({
-                branch_id: doc.id,
+            const branches = querySnapshot.docs.map((doc) => ({
                 ...doc.data(),
+                branch_id: doc.id,
             })) as Branch[];
+
+            // Client-side sort
+            if (branchIds && branchIds.length > 0) {
+                branches.sort((a, b) => (a.branch_name || "").localeCompare(b.branch_name || ""));
+            }
+            return branches;
         } catch (error) {
             console.error("Error fetching branches:", error);
             return [];
@@ -54,13 +64,22 @@ export const branchService = {
     },
 
     // Subscribe to real-time changes
-    subscribe: (callback: (branches: Branch[]) => void) => {
-        const q = query(collection(db, COLLECTION_NAME), orderBy("branch_name"));
+    subscribe: (callback: (branches: Branch[]) => void, branchIds?: string[]) => {
+        let q = query(collection(db, COLLECTION_NAME), orderBy("branch_name"));
+        if (branchIds && branchIds.length > 0) {
+            // Remove orderBy to bypass the need for a composite index
+            q = query(collection(db, COLLECTION_NAME), where(documentId(), "in", branchIds));
+        }
         return onSnapshot(q, (snapshot) => {
             const branches = snapshot.docs.map((doc) => ({
-                branch_id: doc.id,
                 ...doc.data(),
+                branch_id: doc.id,
             })) as Branch[];
+
+            // Client-side sort
+            if (branchIds && branchIds.length > 0) {
+                branches.sort((a, b) => (a.branch_name || "").localeCompare(b.branch_name || ""));
+            }
             callback(branches);
         }, (error) => {
             console.error("Error subscribing to branches:", error);

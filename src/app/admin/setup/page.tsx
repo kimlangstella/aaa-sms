@@ -24,6 +24,7 @@ import {
   X,
   Edit,
   ChevronDown,
+  Trash2,
 } from "lucide-react";
 import { 
   getSchoolDetails, 
@@ -37,7 +38,9 @@ import {
 } from "@/lib/services/schoolService";
 import { branchService } from "@/services/branchService";
 import { programService } from "@/services/programService";
-import { School as SchoolType, Branch, Class, Enrollment } from "@/lib/types";
+import { inventoryService } from "@/services/inventoryService";
+import { School as SchoolType, Branch, Class, Enrollment, InventoryItem } from "@/lib/types";
+import { useAuth } from "@/lib/useAuth";
 
 export default function SetupPage() {
   return (
@@ -48,6 +51,7 @@ export default function SetupPage() {
 }
 
 function SetupContent() {
+  const { profile } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get('tab') as string;
@@ -60,22 +64,29 @@ function SetupContent() {
 
   const [classes, setClasses] = useState<Class[]>([]);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   
   // Sticky state for the form
   const [lastSelectedBranch, setLastSelectedBranch] = useState<string>("");
 
   useEffect(() => {
+    if (!profile) return;
+    
+    const branchIds = profile.role === 'admin' ? profile.branchIds : [];
+
     const unsubSchool = subscribeToSchoolDetails(setSchool);
-    const unsubBranches = branchService.subscribe(setBranches);
-    const unsubClasses = subscribeToClasses(setClasses);
-    const unsubEnrollments = subscribeToEnrollments(setEnrollments);
+    const unsubBranches = branchService.subscribe(setBranches, branchIds);
+    const unsubClasses = subscribeToClasses(setClasses, branchIds);
+    const unsubEnrollments = subscribeToEnrollments(setEnrollments, branchIds);
+    const unsubInventory = inventoryService.subscribe(setInventoryItems, branchIds);
     return () => {
         unsubSchool();
         unsubBranches();
         unsubClasses();
         unsubEnrollments();
+        unsubInventory();
     };
-  }, []);
+  }, [profile]);
 
   useEffect(() => {
     if (!searchParams.get('tab')) {
@@ -154,22 +165,25 @@ function SetupContent() {
                        <SetupRequired message="Please create at least one Branch first." action={() => handleTabChange('branches')} />
                    ) : (showAddForm || editingProgram) ? (
                        <div className="max-w-3xl mx-auto">
-                           <ProgramForm 
-                                branches={branches} 
-                                initialData={editingProgram}
-                                onCancel={() => {
-                                    setShowAddForm(false);
-                                    setEditingProgram(null);
-                                }} 
-                                lastSelectedBranch={lastSelectedBranch}
-                                setLastSelectedBranch={setLastSelectedBranch}
-                           />
+                            <ProgramForm 
+                                 branches={branches} 
+                                 initialData={editingProgram}
+                                 onCancel={() => {
+                                     setShowAddForm(false);
+                                     setEditingProgram(null);
+                                 }} 
+                                 lastSelectedBranch={lastSelectedBranch}
+                                 setLastSelectedBranch={setLastSelectedBranch}
+                                 inventoryItems={inventoryItems}
+                                 role={profile?.role}
+                            />
                        </div>
                    ) : (
                        <ProgramList 
                             branches={branches}
                             classes={classes} 
                             enrollments={enrollments} 
+                            inventoryItems={inventoryItems}
                             onAdd={() => setShowAddForm(true)}
                             onEdit={(program: any) => setEditingProgram(program)}
                             onDelete={async (id: string) => {
@@ -180,6 +194,7 @@ function SetupContent() {
                                     alert("Failed to delete program");
                                 }
                             }}
+                            role={profile?.role}
                        />
                    )}
               </div>
@@ -293,7 +308,7 @@ function BranchList({ branches, enrollments, onAdd }: any) {
     )
 }
 
-function ProgramList({ branches, classes, enrollments, onAdd, onEdit, onDelete }: any) {
+function ProgramList({ branches, classes, enrollments, inventoryItems, onAdd, onEdit, onDelete, role }: any) {
     const [programs, setPrograms] = useState<any[]>([]);
     const [selectedBranch, setSelectedBranch] = useState<string>("");
 
@@ -356,12 +371,28 @@ function ProgramList({ branches, classes, enrollments, onAdd, onEdit, onDelete }
                                <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors duration-500">
                                    <GraduationCap size={24} />
                                </div>
-                               <button 
-                                   onClick={() => onEdit(p)}
-                                   className="p-2 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                               >
-                                   <Settings size={18} />
-                               </button>
+                               <div className="flex items-center gap-1">
+                                   <button 
+                                       onClick={() => onEdit(p)}
+                                       className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                       title="Edit Program"
+                                   >
+                                       <Edit size={16} />
+                                   </button>
+                                   {role === 'superAdmin' && (
+                                       <button 
+                                           onClick={() => {
+                                               if (confirm("Are you sure you want to delete this program?")) {
+                                                   onDelete(p.id);
+                                               }
+                                           }}
+                                           className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                                           title="Delete Program"
+                                       >
+                                           <Trash2 size={16} />
+                                       </button>
+                                   )}
+                               </div>
                            </div>
 
                            <div className="space-y-1 mb-4">
@@ -386,6 +417,15 @@ function ProgramList({ branches, classes, enrollments, onAdd, onEdit, onDelete }
                                         <span>${p.session_fee}/S</span>
                                    </div>
                                 )}
+                                {p.needs_inventory && (
+                                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-600 text-[10px] font-black uppercase tracking-widest" title="Needs Uniforms/Books">
+                                        <span>
+                                            {p.inventoryItemIds?.length 
+                                                ? p.inventoryItemIds.map((id: string) => inventoryItems?.find((i: any) => i.id === id)?.name).filter(Boolean).join(', ')
+                                                : 'Uniforms/Books'}
+                                        </span>
+                                    </div>
+                                )}
                            </div>
                       </div>
                  ))}
@@ -400,26 +440,108 @@ function ProgramList({ branches, classes, enrollments, onAdd, onEdit, onDelete }
     )
 }
 
-function ProgramForm({ branches, initialData, onCancel, lastSelectedBranch, setLastSelectedBranch }: any) {
+function ProgramForm({ branches, initialData, onCancel, lastSelectedBranch, setLastSelectedBranch, inventoryItems, role }: any) {
     const [submitting, setSubmitting] = useState(false);
+    const [needsInventory, setNeedsInventory] = useState(initialData?.needs_inventory || false);
+    const [addons, setAddons] = useState<any[]>([]);
+    const [deletedAddonIds, setDeletedAddonIds] = useState<string[]>([]);
+    const [programName, setProgramName] = useState(initialData?.name || "");
+
+    useEffect(() => {
+        if (initialData?.id) {
+            import("@/services/programAddonService").then(({ getProgramAddons }) => {
+                getProgramAddons(initialData.id).then(fetched => {
+                    setAddons(fetched);
+                });
+            });
+        }
+    }, [initialData]);
+
+    useEffect(() => {
+        if (!initialData) {
+            const lowerName = programName.toLowerCase();
+            const needsIt = ['taekwondo', 'music', 'ballet', 'robamkmer', 'chinese'].some(keyword => lowerName.includes(keyword));
+            if (needsIt && addons.length === 0) {
+                // Auto-add an empty slot instead of setting a simple boolean
+                setAddons([{ itemId: '', type: 'inventory', defaultQty: 1, isOptional: true, isRecommended: false }]);
+            }
+        }
+    }, [programName, initialData]);
+
+    const handleToggleItem = () => {
+        setAddons([...addons, { itemId: '', type: 'inventory', defaultQty: 1, isOptional: true, isRecommended: false }]);
+    };
+
+    const handleRemoveItem = (index: number) => {
+        const addonToRemove = addons[index];
+        if (addonToRemove?.id) {
+            setDeletedAddonIds([...deletedAddonIds, addonToRemove.id]);
+        }
+        setAddons(addons.filter((_, i) => i !== index));
+    };
+
+    const handleAddonUpdate = (index: number, updates: any) => {
+        const newAddons = [...addons];
+        newAddons[index] = { ...newAddons[index], ...updates };
+        setAddons(newAddons);
+    };
 
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
         if (submitting) return;
         setSubmitting(true);
         try {
-            const data = Object.fromEntries(new FormData(e.currentTarget));
+            const formData = new FormData(e.currentTarget);
+            const data: any = Object.fromEntries(formData);
+            
+            // Clean up empty addons
+            const validAddons = addons.filter(a => a.itemId);
+            const hasAddons = validAddons.length > 0;
+            
+            data.needs_inventory = hasAddons;
+            data.inventoryItemIds = hasAddons ? validAddons.map(a => a.itemId) : [];
             
             // Save sticky branch
             if (setLastSelectedBranch && data.branchId) {
                 setLastSelectedBranch(data.branchId.toString());
             }
 
+            let programId = initialData?.id;
+
             if (initialData) {
                 await programService.update(initialData.id, data);
             } else {
-                await programService.create(data as any);
+                const newProgramId = await programService.create(data as any);
+                programId = newProgramId;
             }
+
+            // Sync Addons
+            const { addProgramAddon, updateProgramAddon, deleteProgramAddon } = await import("@/services/programAddonService");
+            
+            // Process deletes
+            for (const id of deletedAddonIds) {
+                await deleteProgramAddon(id);
+            }
+            // If they removed all addons from a previously dirty state
+            if (!hasAddons && initialData) {
+                for (const addon of addons) {
+                    if (addon.id) await deleteProgramAddon(addon.id);
+                }
+            }
+            
+            if (hasAddons) {
+                // Process adds / updates
+                for (let i = 0; i < validAddons.length; i++) {
+                    const addon = validAddons[i];
+                    addon.sortOrder = i; 
+                    if (addon.id) {
+                        await updateProgramAddon(addon.id, addon);
+                    } else {
+                        await addProgramAddon({ ...addon, programId } as any);
+                    }
+                }
+            }
+
             onCancel();
         } catch (error) {
             console.error(error);
@@ -448,12 +570,90 @@ function ProgramForm({ branches, initialData, onCancel, lastSelectedBranch, setL
                          {branches.map((b: any) => <option key={b.branch_id} value={b.branch_id}>{b.branch_name}</option>)}
                      </select>
                  </div>
-                 <InputGroup label="Program Name" name="name" required placeholder="e.g. General English" defaultValue={initialData?.name} />
-                 <InputGroup label="Sessions" name="durationSessions" type="number" required defaultValue={initialData?.durationSessions || 24} />
+                 <InputGroup 
+                    label="Program Name" 
+                    name="name" 
+                    required 
+                    placeholder="e.g. General English" 
+                    defaultValue={initialData?.name} 
+                    onChange={(e: any) => setProgramName(e.target.value)}
+                 />
+                 <InputGroup label="Sessions" name="durationSessions" type="number" required defaultValue={initialData?.durationSessions || 11} />
                  <div className="grid grid-cols-2 gap-4">
                     <InputGroup label="Tuition Fee ($)" name="price" type="number" required placeholder="Total" defaultValue={initialData?.price} step="0.01" />
                     <InputGroup label="Session Fee ($)" name="session_fee" type="number" placeholder="Fee per session" defaultValue={initialData?.session_fee} step="0.01" />
                  </div>
+                 <div className="sm:col-span-2 pt-4 border-t border-slate-100 mt-2">
+                         <div className="flex items-center justify-between mb-4">
+                             <div>
+                                 <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                                     <BookOpen size={16} className="text-indigo-600" /> Program Add-ons & Materials
+                                 </label>
+                                 <p className="text-xs text-slate-500 mt-0.5">Configure additional items (like uniforms or books) required or optional for this program.</p>
+                             </div>
+                             <button type="button" onClick={handleToggleItem} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors shadow-sm">
+                                 <Plus size={16} /> Add Item
+                             </button>
+                         </div>
+                         
+                         {addons.length === 0 ? (
+                             <div className="p-8 text-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 text-slate-500 text-sm font-bold">
+                                 No add-ons configured. Click "Add Item" to include materials.
+                             </div>
+                         ) : (
+                             <div className="space-y-3">
+                                 {addons.map((addon, index) => {
+                                     const selectedItem = inventoryItems?.find((i: any) => i.id === addon.itemId);
+                                     return (
+                                         <div key={index} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-xl border border-slate-200 bg-white shadow-sm hover:border-indigo-200 hover:shadow-md transition-all group">
+                                             <div className="flex-1 min-w-[200px]">
+                                                 <select 
+                                                     value={addon.itemId} 
+                                                     onChange={(e) => handleAddonUpdate(index, { itemId: e.target.value })}
+                                                     className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-bold bg-slate-50 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                                                 >
+                                                     <option value="" disabled>Select Item...</option>
+                                                     {inventoryItems?.map((item: any) => (
+                                                         <option key={item.id} value={item.id}>{item.name} {item.price ? `($${item.price})` : ''}</option>
+                                                     ))}
+                                                 </select>
+                                             </div>
+                                             
+                                             <div className="flex items-center gap-3 shrink-0">
+                                                 {addon.itemId && (
+                                                     <label className="flex items-center gap-2 cursor-pointer group/opt bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 hover:border-indigo-200 transition-all">
+                                                         <div className="relative flex items-center justify-center">
+                                                             <input 
+                                                                 type="checkbox"
+                                                                 checked={addon.isOptional}
+                                                                 onChange={(e) => handleAddonUpdate(index, { isOptional: e.target.checked })}
+                                                                 className="peer sr-only"
+                                                             />
+                                                             <div className="w-4 h-4 rounded border-2 border-slate-300 peer-checked:bg-indigo-600 peer-checked:border-indigo-600 transition-all flex items-center justify-center">
+                                                                <Check size={12} className="text-white opacity-0 peer-checked:opacity-100" strokeWidth={3} />
+                                                             </div>
+                                                         </div>
+                                                         <span className="text-xs font-bold text-slate-600 group-hover/opt:text-indigo-700 transition-colors">Optional</span>
+                                                     </label>
+                                                 )}
+                                                 
+                                                 {role === 'superAdmin' && (
+                                                     <button 
+                                                        type="button" 
+                                                        onClick={() => handleRemoveItem(index)} 
+                                                        className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 border border-transparent hover:border-rose-100 rounded-lg transition-all"
+                                                        title="Remove Item"
+                                                    >
+                                                         <Trash2 size={16} />
+                                                     </button>
+                                                 )}
+                                             </div>
+                                         </div>
+                                     );
+                                 })}
+                             </div>
+                         )}
+                     </div>
              </div>
         </CardForm>
     )
@@ -662,7 +862,7 @@ function CardForm({ title, children, onCancel, onSubmit, submitLabel = "Create" 
     )
 }
 
-function InputGroup({ label, name, type="text", required, defaultValue, placeholder, icon, className, ...props }: any) {
+function InputGroup({ label, name, type="text", required, defaultValue, placeholder, icon, className, onChange, ...props }: any) {
     return (
         <div className={`space-y-2 ${className}`}>
             <label className="flex items-center gap-2 text-xs font-bold text-slate-400 ml-1 uppercase tracking-wide">
@@ -681,6 +881,7 @@ function InputGroup({ label, name, type="text", required, defaultValue, placehol
                     defaultValue={defaultValue}
                     placeholder={placeholder}
                     step={props.step}
+                    onChange={onChange}
                     className={`w-full ${icon ? 'pl-14 pr-5' : 'px-5'} py-4 rounded-xl bg-slate-50 border-2 border-slate-100 focus:border-blue-500/20 focus:bg-white outline-none font-bold text-slate-700 placeholder:text-slate-300 transition-all shadow-sm`}
                 />
             </div>

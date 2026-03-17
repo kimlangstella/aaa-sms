@@ -27,6 +27,7 @@ import {
 } from "@/lib/services/schoolService";
 import { branchService } from "@/services/branchService";
 import { Student, Enrollment, Branch, Attendance, Class } from "@/lib/types";
+import { useAuth } from "@/lib/useAuth";
 import { 
   BarChart, 
   Bar, 
@@ -113,6 +114,7 @@ function SectionHeader({ title, action }: { title: string, action?: React.ReactN
 // --- Main Page ---
 
 export default function DashboardPage() {
+  const { profile } = useAuth();
   const router = useRouter();
   const [students, setStudents] = useState<Student[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -127,19 +129,23 @@ export default function DashboardPage() {
   const [trendFilter, setTrendFilter] = useState<'Week' | 'Month' | 'Year'>('Month');
 
   useEffect(() => {
+    if (!profile) return;
+    
+    const branchIds: string[] = []; // Both admin and superAdmin see all
+
     const unsubStudents = subscribeToStudents((data) => {
         setStudents(data);
         setLoading(false);
-    });
-    const unsubEnrollments = subscribeToEnrollments(setEnrollments);
-    const unsubBranches = branchService.subscribe(setBranches);
+    }, branchIds);
+    const unsubEnrollments = subscribeToEnrollments(setEnrollments, branchIds);
+    const unsubBranches = branchService.subscribe(setBranches, branchIds);
     
     // Fetch Classes once
     getClasses().then(setClasses);
 
     // Subscribe to today's attendance
     const today = new Date().toISOString().split('T')[0];
-    const unsubAttendance = subscribeToDailyAttendance(today, setTodaysAttendance);
+    const unsubAttendance = subscribeToDailyAttendance(today, setTodaysAttendance, branchIds);
     
     return () => {
       unsubStudents();
@@ -147,7 +153,7 @@ export default function DashboardPage() {
       unsubBranches();
       unsubAttendance();
     };
-  }, []);
+  }, [profile]);
 
   // --- Statistics Calculation ---
   const activeStudents = students.filter(s => s.status === 'Active').length;

@@ -12,7 +12,7 @@ import {
     subscribeToAttendance 
 } from "@/lib/services/schoolService";
 import { Student, Enrollment, Attendance } from "@/lib/types";
-import * as XLSX from "xlsx";
+
 
 interface StudentReport {
     student: Student;
@@ -40,60 +40,127 @@ export default function AttendanceReportsPage() {
     const [filterProgram, setFilterProgram] = useState("");
     const [filterClass, setFilterClass] = useState("");
 
-    const handleExport = () => {
+    const handleExport = async () => {
         if (reportData.length === 0) return;
 
+        const ExcelJS = (await import('exceljs')).default;
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('Attendance Report');
+
         // 1. Resolve metadata for header
-        const branchName = branches.find(b => b.branch_id === filterBranch)?.branch_name || "All Branches";
-        const termName = terms.find(t => t.term_id === filterTerm)?.term_name || "All Terms";
-        const programName = programs.find(p => p.id === filterProgram)?.name || programs.find(p => p.id === filterProgram)?.program_name || "All Programs";
-        const className = classes.find(c => c.class_id === filterClass)?.className || "All Classes";
+        const branchName = branches.find((b: any) => b.branch_id === filterBranch)?.branch_name || "All Branches";
+        const termName = terms.find((t: any) => t.term_id === filterTerm)?.term_name || "All Terms";
+        const programName = programs.find((p: any) => p.id === filterProgram)?.name || "All Programs";
+        const className = classes.find((c: any) => c.class_id === filterClass)?.className || "All Classes";
+        const TOTAL_COLS = 9;
 
-        // 2. Prepare Header Rows
-        const headerRows = [
-            ["Authentic Advanced Academy (AAA)"],
-            ["Attendance Report"],
-            [`Date: ${new Date().toLocaleDateString()}`],
-            [`Filter - Term: ${termName} | Branch: ${branchName} | Program: ${programName} | Class: ${className}`],
-            [], // Spacer
-            ["Student Name", "Code", "Class", "Present", "Absent", "Leave", "Total Sessions", "Attendance Rate (%)", "Notes"]
-        ];
+        // 2. School Branding Row
+        const titleRow = worksheet.addRow(['Authentic Advanced Academy (AAA)']);
+        worksheet.mergeCells(`A1:I1`);
+        titleRow.getCell(1).font = { name: 'Calibri', size: 20, bold: true, color: { argb: 'FF4F46E5' } };
+        titleRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+        titleRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F3FF' } };
+        titleRow.height = 40;
 
-        // 3. Prepare Data Rows
-        const dataRows = reportData.map(r => [
-            r.student?.student_name || "N/A",
-            r.student?.student_code || "N/A",
-            r.className,
-            r.presents,
-            r.absents,
-            r.leaves,
-            r.totalSessions,
-            `${r.attendanceRate}%`,
-            r.notes || ""
-        ]);
+        // 3. Sub-title
+        const subRow = worksheet.addRow(['Attendance Analytics Report']);
+        worksheet.mergeCells('A2:I2');
+        subRow.getCell(1).font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF64748B' } };
+        subRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+        subRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+        subRow.height = 26;
 
-        // 4. Combine and Create Sheet
-        const allRows = [...headerRows, ...dataRows];
-        const worksheet = XLSX.utils.aoa_to_sheet(allRows);
+        // 4. Meta info
+        const metaRow = worksheet.addRow([`Export Date: ${new Date().toLocaleDateString()}  •  Term: ${termName}  •  Branch: ${branchName}  •  Program: ${programName}  •  Class: ${className}`]);
+        worksheet.mergeCells('A3:I3');
+        metaRow.getCell(1).font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FF94A3B8' } };
+        metaRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+        metaRow.height = 20;
 
-        // 5. Apply Column Formatting (Basic width)
-        const wscols = [
-            { wch: 30 }, // Student Name
-            { wch: 15 }, // Code
-            { wch: 20 }, // Class
-            { wch: 10 }, // Present
-            { wch: 10 }, // Absent
-            { wch: 10 }, // Leave
-            { wch: 15 }, // Total
-            { wch: 15 }, // Rate
-            { wch: 40 }, // Notes
-        ];
-        worksheet['!cols'] = wscols;
+        // 5. Spacer
+        worksheet.addRow([]);
 
-        // 6. Write File
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Attendance");
-        XLSX.writeFile(workbook, `Attendance_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+        // 6. Column Headers
+        const headers = ['Student Name', 'Code', 'Class', 'Present', 'Absent', 'Leave', 'Total Sessions', 'Attendance Rate', 'Notes'];
+        const headerRow = worksheet.addRow(headers);
+        headerRow.height = 32;
+        headerRow.eachCell((cell, colNum) => {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } };
+            cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+            cell.alignment = { horizontal: colNum === 1 || colNum === 3 || colNum === TOTAL_COLS ? 'left' : 'center', vertical: 'middle' };
+            cell.border = { bottom: { style: 'medium', color: { argb: 'FF4338CA' } } };
+        });
+
+        // 7. Data Rows
+        reportData.forEach((r: any, index: number) => {
+            const row = worksheet.addRow([
+                r.student?.student_name || 'N/A',
+                r.student?.student_code || 'N/A',
+                r.className || 'Unknown',
+                r.presents,
+                r.absents,
+                r.leaves,
+                r.totalSessions,
+                `${r.attendanceRate}%`,
+                r.notes || ''
+            ]);
+            row.height = 26;
+
+            // Zebra striping
+            const bgColor = index % 2 === 0 ? 'FFFFFFFF' : 'FFF8FAFC';
+
+            row.eachCell((cell, colNum) => {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+                cell.font = { name: 'Calibri', size: 10, color: { argb: 'FF334155' } };
+                cell.alignment = { horizontal: colNum === 1 || colNum === 3 || colNum === 9 ? 'left' : 'center', vertical: 'middle' };
+                cell.border = { bottom: { style: 'thin', color: { argb: 'FFF1F5F9' } } };
+
+                // Color-code Present
+                if (colNum === 4) cell.font = { ...cell.font, bold: true, color: { argb: 'FF059669' } };
+                // Color-code Absent
+                if (colNum === 5) cell.font = { ...cell.font, bold: true, color: { argb: 'FFDC2626' } };
+                // Color-code Leave
+                if (colNum === 6) cell.font = { ...cell.font, bold: true, color: { argb: 'FFD97706' } };
+                // Color-code Attendance Rate
+                if (colNum === 8) {
+                    const rate = r.attendanceRate;
+                    const color = rate >= 90 ? 'FF059669' : rate >= 70 ? 'FFD97706' : 'FFDC2626';
+                    cell.font = { ...cell.font, bold: true, size: 11, color: { argb: color } };
+                }
+            });
+        });
+
+        // 8. Summary footer
+        worksheet.addRow([]);
+        const totalStudents = reportData.length;
+        const avgRate = totalStudents > 0
+            ? Math.round(reportData.reduce((sum: number, r: any) => sum + r.attendanceRate, 0) / totalStudents)
+            : 0;
+        const summaryRow = worksheet.addRow([`Total: ${totalStudents} students  •  Average Attendance Rate: ${avgRate}%  •  Generated by AAA School Management System`]);
+        worksheet.mergeCells(`A${summaryRow.number}:I${summaryRow.number}`);
+        summaryRow.getCell(1).font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FF94A3B8' } };
+        summaryRow.getCell(1).alignment = { horizontal: 'center' };
+
+        // 9. Column Widths
+        worksheet.getColumn(1).width = 30; // Name
+        worksheet.getColumn(2).width = 15; // Code
+        worksheet.getColumn(3).width = 22; // Class
+        worksheet.getColumn(4).width = 10; // Present
+        worksheet.getColumn(5).width = 10; // Absent
+        worksheet.getColumn(6).width = 10; // Leave
+        worksheet.getColumn(7).width = 16; // Total Sessions
+        worksheet.getColumn(8).width = 18; // Rate
+        worksheet.getColumn(9).width = 40; // Notes
+
+        // 10. Download
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = window.URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `AAA_Attendance_Report_${new Date().toISOString().split('T')[0]}.xlsx`;
+        anchor.click();
+        window.URL.revokeObjectURL(url);
     };
 
     useEffect(() => {

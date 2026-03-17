@@ -5,14 +5,22 @@ import { Term } from '@/lib/types';
 const COLLECTION = 'terms';
 
 export const termService = {
-    // Subscribe to all terms with real-time updates
-    subscribe: (callback: (terms: Term[]) => void) => {
-        const q = query(collection(db, COLLECTION), orderBy('created_at', 'desc'));
+    subscribe: (callback: (terms: Term[]) => void, branchIds?: string[]) => {
+        let q = query(collection(db, COLLECTION), orderBy('created_at', 'desc'));
+        if (branchIds && branchIds.length > 0) {
+            // Remove orderBy to bypass the need for a composite index
+            q = query(collection(db, COLLECTION), where('branch_id', 'in', branchIds));
+        }
         return onSnapshot(q, (snapshot) => {
             const terms = snapshot.docs.map(doc => ({
-                term_id: doc.id,
-                ...doc.data()
+                ...doc.data(),
+                term_id: doc.id
             } as Term));
+
+            // Client-side sort
+            if (branchIds && branchIds.length > 0) {
+                terms.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+            }
             callback(terms);
         });
     },
@@ -26,8 +34,8 @@ export const termService = {
         );
         return onSnapshot(q, (snapshot) => {
             const terms = snapshot.docs.map(doc => ({
-                term_id: doc.id,
-                ...doc.data()
+                ...doc.data(),
+                term_id: doc.id
             } as Term));
             callback(terms);
         });
@@ -42,8 +50,8 @@ export const termService = {
         );
         return onSnapshot(q, (snapshot) => {
             const terms = snapshot.docs.map(doc => ({
-                term_id: doc.id,
-                ...doc.data()
+                ...doc.data(),
+                term_id: doc.id
             } as Term));
             callback(terms);
         });
@@ -69,8 +77,8 @@ export const termService = {
         const termSnap = await getDoc(termRef);
         if (termSnap.exists()) {
             return {
-                term_id: termSnap.id,
-                ...termSnap.data()
+                ...termSnap.data(),
+                term_id: termSnap.id
             } as Term;
         }
         return null;

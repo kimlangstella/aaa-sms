@@ -3,11 +3,11 @@
 import { useState, useRef, useEffect } from "react";
 import { X, Upload, FileText, CheckCircle2, AlertCircle, Loader2, Search, Download, Edit2, Check, AlertTriangle, Trash2, RotateCcw, Folder } from "lucide-react";
 import * as XLSX from "xlsx";
-import { Student, Branch, Gender, StudentStatus, Program, Class, Term } from "@/lib/types";
+import { Student, Branch, Gender, StudentStatus, PaymentStatus, Program, Class, Term } from "@/lib/types";
 import { branchService } from "@/services/branchService";
 import { programService } from "@/services/programService";
 import { termService } from "@/services/termService";
-import { addStudent, getClasses, addEnrollment } from "@/lib/services/schoolService";
+import { addStudent, getClasses, addEnrollment, getStudents } from "@/lib/services/schoolService";
 
 interface ImportStudentModalProps {
     isOpen: boolean;
@@ -31,10 +31,15 @@ interface ParsedStudent {
     program_id?: string;
     class_name: string;
     class_id?: string;
+    program_ids?: string[];
+    class_ids?: string[];
     address: string;
     status: StudentStatus;
+    payment_status: PaymentStatus;
+    payment_expired: string;
     father_name: string;
     mother_name: string;
+    admission_date: string;
     isValid: boolean;
     errors: string[];
 }
@@ -48,6 +53,7 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
     const [classes, setClasses] = useState<Class[]>([]);
     const [terms, setTerms] = useState<Term[]>([]);
     const [parsedData, setParsedData] = useState<ParsedStudent[]>([]);
+    const [allStudents, setAllStudents] = useState<Student[]>([]);
     const [isDragging, setIsDragging] = useState(false);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [uploadProgress, setUploadProgress] = useState(0);
@@ -70,6 +76,7 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
             programService.getAll().then(setPrograms);
             getClasses().then(setClasses);
             termService.subscribe(setTerms);
+            getStudents().then(setAllStudents);
         } else {
             // Reset state when closing
             setStep('upload');
@@ -111,8 +118,43 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
                     const wb = XLSX.read(bstr, { type: 'binary' });
                     const wsname = wb.SheetNames[0];
                     const ws = wb.Sheets[wsname];
-                    const data = XLSX.utils.sheet_to_json(ws);
-                    processImportData(data);
+                    
+                    // Read as array of arrays to find header row
+                    const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+                    
+                    // Find the header row (searching for "Name" or "student_name")
+                    let headerIndex = -1;
+                    for (let i = 0; i < Math.min(rawData.length, 10); i++) {
+                        const row = rawData[i];
+                        if (row.some(cell => {
+                            const val = String(cell || '').toLowerCase().trim();
+                            return val === 'name' || val === 'student_name' || val === 'full name' || val === 'student name';
+                        })) {
+                            headerIndex = i;
+                            break;
+                        }
+                    }
+
+                    if (headerIndex !== -1) {
+                        // Extract headers and data
+                        const headers = rawData[headerIndex].map(h => String(h || '').trim());
+                        const dataRows = rawData.slice(headerIndex + 1);
+                        
+                        // Map rows to objects
+                        const data = dataRows.map(row => {
+                            const obj: any = {};
+                            headers.forEach((h, idx) => {
+                                if (h) obj[h] = row[idx];
+                            });
+                            return obj;
+                        }).filter(obj => Object.values(obj).some(v => v !== null && v !== undefined && v !== ''));
+
+                        processImportData(data);
+                    } else {
+                        // Fallback to default behavior if header not found
+                        const data = XLSX.utils.sheet_to_json(ws);
+                        processImportData(data);
+                    }
                 };
                 reader.readAsBinaryString(file!);
             }
@@ -122,7 +164,26 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
     const validateStudent = (student: Partial<ParsedStudent>) => {
         const errors: string[] = [];
         if (!student.student_name && (!student.first_name || !student.last_name)) errors.push('Name is required');
+        if (!student.gender) errors.push('Gender is required');
+        if (!student.dob) errors.push('DOB is required');
         if (!student.branch_name) errors.push('Branch is required');
+        if (!student.program_name) errors.push('Program is required');
+        if (!student.class_name) errors.push('Class is required');
+        if (student.phone) {
+            const phone = student.phone.toString().trim();
+            if (phone.length < 8) errors.push('Phone must be at least 8 digits');
+        }
+        if (!student.parent_phone) errors.push('Parent Phone is required');
+
+        // --- Duplicate Check ---
+        const nameMatch = (student.student_name || `${student.first_name} ${student.last_name}`).trim();
+        const isDuplicate = allStudents.some(s => 
+            s.student_name.toLowerCase() === nameMatch.toLowerCase()
+        );
+
+        if (isDuplicate) {
+            errors.push('Student already exists (Duplicate)');
+        }
         
         // Check if branch exists
         const branch = branches.find(b => b.branch_name.toLowerCase() === student.branch_name?.toLowerCase());
@@ -134,27 +195,54 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
 
         // Program Validation
         if (student.program_name) {
-            const program = programs.find(p => p.name.toLowerCase() === student.program_name?.toLowerCase() && (!branch || p.branchId === branch.branch_id));
-            if (!program) {
-                errors.push(`Program "${student.program_name}" not found in this branch`);
-                student.program_id = undefined;
-            } else {
-                student.program_id = program.id;
-                
-                // Class Validation within Branch & Program
-                if (student.class_name) {
-                    const cls = classes.find(c => 
-                        c.className.toLowerCase() === student.class_name?.toLowerCase() &&
-                        c.branchId === branch?.branch_id &&
-                        c.programId === program.id
-                    );
-                    if (!cls) {
-                        errors.push(`Class "${student.class_name}" not found in this Branch/Program`);
-                        student.class_id = undefined;
-                    } else {
-                        student.class_id = cls.class_id;
+            const programNames = student.program_name.split(',').map(s => s.trim()).filter(Boolean);
+            const classNames = student.class_name ? student.class_name.split(',').map(s => s.trim()).filter(Boolean) : [];
+            
+            student.program_ids = [];
+            student.class_ids = [];
+
+            programNames.forEach((progName, index) => {
+                const program = programs.find(p => p.name.toLowerCase() === progName.toLowerCase() && (!branch || p.branchId === branch.branch_id));
+                if (!program) {
+                    errors.push(`Program "${progName}" not found in this branch`);
+                } else {
+                    student.program_ids!.push(program.id);
+                    // Match single program logic backward compatability
+                    if(index === 0) student.program_id = program.id;
+                    
+                    // Class Validation within Branch & Program
+                    const clsName = classNames[index]; // Assume 1:1 mapping of program to class by index if provided
+                    if (clsName) {
+                        const cls = classes.find(c => {
+                            const normalizedInput = clsName.toLowerCase().replace(/[\s\-_]+/g, '');
+                            const normalizedClassName = c.className.toLowerCase().replace(/[\s\-_]+/g, '');
+                            const isNameMatch = normalizedInput.includes(normalizedClassName) || normalizedClassName.includes(normalizedInput);
+                            
+                            const scheduleStr = `${c.days?.map(d => d.slice(0, 3)).join(', ')}(${c.startTime}-${c.endTime})`.toLowerCase().replace(/[\s\-_]+/g, '');
+                            const isScheduleMatch = normalizedInput.includes(scheduleStr);
+                            
+                            return (isNameMatch || isScheduleMatch) &&
+                                c.branchId === branch?.branch_id &&
+                                c.programId === program.id;
+                        });
+                        if (!cls) {
+                            errors.push(`Class "${clsName}" not found for program "${progName}"`);
+                        } else {
+                            student.class_ids!.push(cls.class_id);
+                            if(index === 0) {
+                                student.class_id = cls.class_id;
+                                // Update name to ONLY the schedule string for user visibility
+                                const sched = `${cls.days?.map(d => d.slice(0, 3)).join(', ')}(${cls.startTime}-${cls.endTime})`.trim();
+                                student.class_name = sched || cls.className;
+                            }
+                        }
                     }
                 }
+            });
+            
+            // If arrays got out of sync or lengths mismatch
+            if (classNames.length > 0 && classNames.length !== programNames.length) {
+                errors.push(`Mismatch between number of programs (${programNames.length}) and classes (${classNames.length})`);
             }
         }
 
@@ -191,10 +279,24 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
                 branch_name: branchName,
                 program_name: programName,
                 class_name: className,
+                program_ids: [],
+                class_ids: [],
                 address: (row['Address'] || row['address'] || '').toString(),
-                status: 'Active' as StudentStatus,
+                status: (()=>{
+                    const s = (row['Status'] || row['status'] || 'Active').toString().trim();
+                    if (s.toLowerCase().startsWith('in')) return 'Inactive' as StudentStatus;
+                    if (s.toLowerCase().startsWith('ho')) return 'Hold' as StudentStatus;
+                    return 'Active' as StudentStatus;
+                })(),
+                payment_status: (()=>{
+                    const s = (row['Payment Status'] || row['payment_status'] || row['Payment'] || row['payment'] || 'Unpaid').toString().trim();
+                    if (s.toLowerCase().startsWith('pa')) return 'Paid' as PaymentStatus;
+                    return 'Unpaid' as PaymentStatus;
+                })(),
+                payment_expired: (row['Due Date'] || row['due_date'] || row['payment_expired'] || '').toString(),
                 father_name: (row['Father Name'] || row['father_name'] || '').toString(),
                 mother_name: (row['Mother Name'] || row['mother_name'] || '').toString(),
+                admission_date: (row['Admission Date'] || row['admission_date'] || row['Admission'] || new Date().toISOString().split('T')[0]).toString(),
                 isValid: false,
                 errors: []
             };
@@ -223,13 +325,14 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
             student.class_name = '';
             student.class_id = undefined;
         } else if (field === 'program_name') {
-            const program = programs.find(p => p.name === value && p.branchId === student.branch_id);
-            student.program_id = program?.id;
+            student.program_id = undefined;
+            student.program_ids = [];
             student.class_name = '';
             student.class_id = undefined;
+            student.class_ids = [];
         } else if (field === 'class_name') {
-            const cls = classes.find(c => c.className === value && c.branchId === student.branch_id && c.programId === student.program_id);
-            student.class_id = cls?.class_id;
+            student.class_id = undefined;
+            student.class_ids = [];
         }
 
         // Re-validate
@@ -276,31 +379,40 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
                     parent_phone: item.parent_phone,
                     father_name: item.father_name,
                     mother_name: item.mother_name,
-                    status: 'Active',
-                    admission_date: new Date().toISOString().split('T')[0],
+                    status: item.status || 'Active',
+                    admission_date: item.admission_date || new Date().toISOString().split('T')[0],
                     age: calculateAge(item.dob)
                 }) as any;
 
                 // Handle Enrollment if Program and Class are specified
-                if (item.program_id && item.class_id) {
-                    const program = programs.find(p => p.id === item.program_id);
+                if (item.program_ids && item.program_ids.length > 0 && item.class_ids && item.class_ids.length === item.program_ids.length) {
                     const activeTerm = terms.find(t => t.status === 'Active' && t.branch_id === branchId) || terms[0];
 
                     if (activeTerm) {
-                        await addEnrollment({
-                            student_id: newStudent.id,
-                            class_id: item.class_id,
-                            term_id: activeTerm.term_id,
-                            term: activeTerm.term_name,
-                            total_amount: program?.price || 0,
-                            discount: 0,
-                            paid_amount: 0,
-                            payment_status: 'Unpaid',
-                            payment_type: 'Cash',
-                            enrollment_status: 'Active',
-                            start_session: 1,
-                            enrolled_at: new Date().toISOString()
-                        });
+                        for (let i = 0; i < item.program_ids.length; i++) {
+                            const progId = item.program_ids[i];
+                            const clsId = item.class_ids[i];
+                            const program = programs.find(p => p.id === progId);
+                            
+                            await addEnrollment({
+                                student_id: newStudent.id,
+                                class_id: clsId,
+                                branchId: branchId, // Add for easier lookup
+                                programId: progId, // Add for easier lookup
+                                term_id: activeTerm.term_id,
+                                term: activeTerm.term_name,
+                                total_amount: program?.price || 0,
+                                discount: 0,
+                                paid_amount: item.payment_status === 'Paid' ? (program?.price || 0) : 0,
+                                payment_status: item.payment_status || 'Unpaid',
+                                payment_type: 'Cash',
+                                payment_due_date: item.payment_expired || activeTerm.end_date,
+                                payment_expired: item.payment_expired || activeTerm.end_date,
+                                enrollment_status: 'Active',
+                                start_session: 1,
+                                enrolled_at: new Date().toISOString()
+                            });
+                        }
                     }
                 }
 
@@ -329,28 +441,157 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
         return age;
     };
 
-    const downloadTemplate = () => {
-        const template = [
-            {
-                'Name': 'John Doe',
-                'Gender': 'Male',
-                'DOB': '2015-05-15',
-                'POB': 'Phnom Penh',
-                'Branch': branches[0]?.branch_name || 'Main Branch',
-                'Program': programs[0]?.name || 'English for Kids',
-                'Class': classes.find(c => c.branchId === branches[0]?.branch_id)?.className || 'Room 101',
-                'Phone': '012345678',
-                'Parent Phone': '098765432',
-                'Nationality': 'Cambodian',
-                'Address': 'Phnom Penh',
-                'Father Name': 'Doe Senior',
-                'Mother Name': 'Jane Doe'
-            }
+    const downloadTemplate = async () => {
+        const ExcelJS = (await import('exceljs')).default;
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('Students Import');
+
+        // 1. School Branding Row
+        const titleRow = worksheet.addRow(['Authentic Advanced Academy (AAA) — Student Import Template']);
+        worksheet.mergeCells('A1:P1');
+        titleRow.getCell(1).font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF4F46E5' } };
+        titleRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+        titleRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F3FF' } };
+        titleRow.height = 36;
+
+        // 2. Instruction row
+        const instrRow = worksheet.addRow(['Fill in your data below. Required columns are marked with ★. The first row with example data is for reference — please delete it before importing.']);
+        worksheet.mergeCells('A2:P2');
+        instrRow.getCell(1).font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FF64748B' } };
+        instrRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+        instrRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+        instrRow.height = 22;
+
+        // 3. Spacer
+        worksheet.addRow([]);
+
+        // 4. Column Headers (required starred, optional light)
+        const colDefs = [
+            { label: '★ Name',          key: 'Name',           required: true,  width: 26 },
+            { label: '★ Gender',        key: 'Gender',         required: true,  width: 12 },
+            { label: '★ DOB',           key: 'DOB',            required: true,  width: 14 },
+            { label: 'POB',             key: 'POB',            required: false, width: 18 },
+            { label: 'Nationality',     key: 'Nationality',    required: false, width: 16 },
+            { label: '★ Phone',         key: 'Phone',          required: true,  width: 16 },
+            { label: '★ Parent Phone',  key: 'Parent Phone',   required: true,  width: 16 },
+            { label: '★ Branch',        key: 'Branch',         required: true,  width: 20 },
+            { label: 'Program',         key: 'Program',        required: false, width: 22 },
+            { label: 'Class',           key: 'Class',          required: false, width: 22 },
+            { label: 'Status',          key: 'Status',         required: false, width: 14 },
+            { label: 'Payment Status',  key: 'Payment Status', required: false, width: 16 },
+            { label: 'Due Date',        key: 'Due Date',       required: false, width: 16 },
+            { label: 'Admission Date',  key: 'Admission Date', required: false, width: 16 },
+            { label: 'Address',         key: 'Address',        required: false, width: 28 },
+            { label: 'Father Name',     key: 'Father Name',    required: false, width: 20 },
+            { label: 'Mother Name',     key: 'Mother Name',    required: false, width: 20 },
         ];
-        const ws = XLSX.utils.json_to_sheet(template);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Students");
-        XLSX.writeFile(wb, "student_import_template.xlsx");
+
+        const headerRow = worksheet.addRow(colDefs.map(c => c.label));
+        headerRow.height = 30;
+        headerRow.eachCell((cell, colIdx) => {
+            const isRequired = colDefs[colIdx - 1]?.required;
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isRequired ? 'FF4F46E5' : 'FF818CF8' } };
+            cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+            cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: false };
+            cell.border = { bottom: { style: 'medium', color: { argb: 'FF4338CA' } } };
+        });
+
+        // Set column widths
+        colDefs.forEach((col, i) => {
+            worksheet.getColumn(i + 1).width = col.width;
+        });
+
+        // 5. Sample Data Row
+        const branchExample = branches[0]?.branch_name || 'Funmall TK';
+        const sampleRow = worksheet.addRow([
+            'Seng Meng',
+            'Male',
+            '2015-05-20',
+            'Phnom Penh',
+            'Cambodian',
+            '012345678',
+            '098765432',
+            branchExample,
+            'Robotic',
+            'sat(09:00-10:30)',
+            'Active',
+            'Paid',
+            terms[0]?.end_date || new Date().toISOString().split('T')[0],
+            new Date().toISOString().split('T')[0],
+            'Street 271, Sangkat Boeung Tumpun, Phnom Penh',
+            'Seng Samnang',
+            'Keo Sokha'
+        ]);
+        sampleRow.height = 24;
+        sampleRow.eachCell(cell => {
+            cell.font = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF94A3B8' } };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        });
+
+        // 6. Instructions Sheet
+        const instructionSheet = workbook.addWorksheet('How to Fill');
+        const instructions = [
+            ['Field',           'Required', 'Format / Notes'],
+            ['Name',            'YES',      'Full name of student'],
+            ['Gender',          'YES',      'Male / Female'],
+            ['DOB',             'YES',      'YYYY-MM-DD (e.g. 2015-05-20)'],
+            ['POB',             'NO',       'Place of birth'],
+            ['Nationality',     'NO',       'Default: Cambodian'],
+            ['Phone',           'YES',      'Student or guardian phone number'],
+            ['Parent Phone',    'YES',      "Parent's phone number"],
+            ['Branch',         'YES',      'Must exactly match an existing branch name'],
+            ['Program',         'NO',       'Must match existing program in the branch. Separate multiple with comma.'],
+            ['Class',           'NO',       'Schedule format: sat(09:00-10:30). Separate multiple with comma.'],
+            ['Status',          'NO',       'Active / Inactive / Hold (default: Active)'],
+            ['Payment Status',  'NO',       'Paid / Unpaid (default: Unpaid)'],
+            ['Admission Date',  'NO',       'YYYY-MM-DD format'],
+            ['Address',         'NO',       'Full address'],
+            ['Father Name',     'NO',       "Father's full name"],
+            ['Mother Name',     'NO',       "Mother's full name"],
+        ];
+
+        const instrHeaderRow = instructionSheet.addRow(['AAA Import Guide — Field Descriptions']);
+        instructionSheet.mergeCells('A1:C1');
+        instrHeaderRow.getCell(1).font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF4F46E5' } };
+        instrHeaderRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F3FF' } };
+        instrHeaderRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+        instrHeaderRow.height = 32;
+        instructionSheet.addRow([]);
+
+        instructions.forEach((row, rowIdx) => {
+            const addedRow = instructionSheet.addRow(row);
+            addedRow.height = 22;
+            addedRow.eachCell((cell, colIdx) => {
+                if (rowIdx === 0) {
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+                    cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+                } else {
+                    const isEven = rowIdx % 2 === 0;
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isEven ? 'FFF8FAFC' : 'FFFFFFFF' } };
+                    cell.font = {
+                        name: 'Calibri', size: 10,
+                        color: { argb: colIdx === 2 && row[1] === 'YES' ? 'FF4F46E5' : 'FF334155' },
+                        bold: colIdx === 2 && row[1] === 'YES'
+                    };
+                }
+                cell.border = { bottom: { style: 'thin', color: { argb: 'FFF1F5F9' } } };
+                cell.alignment = { vertical: 'middle', wrapText: true };
+            });
+        });
+        instructionSheet.getColumn(1).width = 18;
+        instructionSheet.getColumn(2).width = 12;
+        instructionSheet.getColumn(3).width = 55;
+
+        // 7. Download
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = window.URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = 'AAA_Student_Import_Template.xlsx';
+        anchor.click();
+        window.URL.revokeObjectURL(url);
     };
 
     if (!isOpen) return null;
@@ -448,8 +689,8 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
                                                 <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.4em] mt-3">Analyzing structure</p>
                                             </div>
 
-                                            {/* Styled File Card (Image2 style, compact at bottom) */}
-                                            <div className="bg-slate-900/95 backdrop-blur-xl rounded-[2.5rem] p-6 flex items-center justify-between shadow-2xl shadow-indigo-200/20 border border-indigo-400/10">
+                                            {/* Styled File Card (Indigo Style) */}
+                                            <div className="bg-indigo-600/95 backdrop-blur-xl rounded-[2.5rem] p-6 flex items-center justify-between shadow-2xl shadow-indigo-200/40 border border-white/20">
                                                 <div className="flex items-center gap-6">
                                                     <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shadow-inner">
                                                         <FileText size={24} />
@@ -531,6 +772,9 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
                                                 <th className="p-3 text-[9px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Class</th>
                                                 <th className="p-3 text-[9px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Phone</th>
                                                 <th className="p-3 text-[9px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Status</th>
+                                                <th className="p-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">Payment</th>
+                                                <th className="p-3 text-[9px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Due Date</th>
+                                                <th className="p-3 text-[9px] font-black text-slate-400 uppercase tracking-widest">Adm. Date</th>
                                                 <th className="p-3 text-[9px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap text-center">Action</th>
                                             </tr>
                                         </thead>
@@ -611,23 +855,62 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
                                                         {editingCell?.index === idx && editingCell?.field === 'class_name' ? (
                                                             <select className="text-xs bg-white border border-indigo-300 rounded outline-none px-2 py-1" value={student.class_name} onChange={(e) => handleEditCell(idx, 'class_name', e.target.value)} onBlur={() => setEditingCell(null)} autoFocus>
                                                                 <option value="">Select Class</option>
-                                                                {classes.filter(c => (!student.branch_id || c.branchId === student.branch_id) && (!student.program_id || c.programId === student.program_id)).map(c => <option key={c.class_id} value={c.className}>{c.className}</option>)}
+                                                                {classes.filter(c => (!student.branch_id || c.branchId === student.branch_id) && (!student.program_id || c.programId === student.program_id)).map(c => {
+                                                                    const sched = `${c.days?.map(d => d.slice(0, 3)).join(', ')}(${c.startTime}-${c.endTime})`.trim();
+                                                                    return <option key={c.class_id} value={c.className}>{sched || c.className}</option>;
+                                                                })}
                                                             </select>
                                                         ) : (
-                                                            <div onClick={() => setEditingCell({ index: idx, field: 'class_name' })} className={`px-2 py-0.5 rounded-lg text-[10px] font-bold whitespace-nowrap cursor-pointer ${classes.some(c => c.className.toLowerCase() === (student.class_name || '').toLowerCase() && (!student.branch_id || c.branchId === student.branch_id) && (!student.program_id || c.programId === student.program_id)) ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' : 'bg-slate-100 text-slate-400'}`}>
+                                                            <div onClick={() => setEditingCell({ index: idx, field: 'class_name' })} className={`px-2 py-0.5 rounded-lg text-[10px] font-bold whitespace-nowrap cursor-pointer ${classes.some(c => {
+                                                                const isNameMatch = c.className.toLowerCase() === (student.class_name || '').toLowerCase();
+                                                                const scheduleStr = `${c.days?.map(d => d.slice(0, 3)).join(', ')}(${c.startTime}-${c.endTime})`.toLowerCase();
+                                                                const isScheduleMatch = scheduleStr === (student.class_name || '').toLowerCase();
+                                                                return (isNameMatch || isScheduleMatch) && (!student.branch_id || c.branchId === student.branch_id) && (!student.program_id || c.programId === student.program_id);
+                                                            }) ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' : 'bg-slate-100 text-slate-400'}`}>
                                                                 {student.class_name || 'Optional'}
                                                             </div>
                                                         )}
                                                     </td>
 
                                                     <td className="p-3 text-xs font-semibold text-slate-600">{student.phone || '-'}</td>
+                                                    
+                                                    <td className="p-3">
+                                                        <div onClick={() => setEditingCell({ index: idx, field: 'status' })} className="cursor-pointer hover:bg-slate-100 rounded px-2 py-0.5">
+                                                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border uppercase tracking-tighter ${student.status === 'Active' ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : student.status === 'Hold' ? 'text-amber-600 bg-amber-50 border-amber-100' : 'text-slate-500 bg-slate-50 border-slate-100'}`}>
+                                                                {student.status}
+                                                            </span>
+                                                        </div>
+                                                    </td>
 
                                                     <td className="p-3">
-                                                        {!student.isValid ? (
-                                                            <span className="text-[9px] font-black text-rose-500 bg-rose-50 px-2 py-0.5 rounded border border-rose-100 whitespace-nowrap">{student.errors[0]}</span>
+                                                        <div onClick={() => setEditingCell({ index: idx, field: 'payment_status' })} className="cursor-pointer hover:bg-slate-100 rounded px-2 py-0.5">
+                                                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border uppercase tracking-tighter ${student.payment_status === 'Paid' ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-rose-600 bg-rose-50 border-rose-100'}`}>
+                                                                {student.payment_status}
+                                                            </span>
+                                                        </div>
+                                                    </td>
+
+                                                    <td className="p-3">
+                                                        {editingCell?.index === idx && editingCell?.field === 'payment_expired' ? (
+                                                            <input 
+                                                                type="date" 
+                                                                className="text-[10px] font-bold text-slate-800 bg-white border border-indigo-300 rounded px-2 py-1 outline-none" 
+                                                                value={student.payment_expired} 
+                                                                onChange={(e) => handleEditCell(idx, 'payment_expired', e.target.value)} 
+                                                                onBlur={() => setEditingCell(null)} 
+                                                                autoFocus 
+                                                            />
                                                         ) : (
-                                                            <span className="text-[9px] font-black text-emerald-600 px-2 py-0.5 bg-emerald-50 rounded-full border border-emerald-100 uppercase tracking-tighter">Ready</span>
+                                                            <div onClick={() => setEditingCell({ index: idx, field: 'payment_expired' })} className="cursor-pointer hover:bg-slate-100 rounded px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                                                                {student.payment_expired || 'YYYY-MM-DD'}
+                                                            </div>
                                                         )}
+                                                    </td>
+
+                                                    <td className="p-3 text-[10px] font-medium text-slate-500 whitespace-nowrap">
+                                                        <div onClick={() => setEditingCell({ index: idx, field: 'admission_date' })} className="cursor-pointer hover:bg-slate-100 rounded px-2 py-0.5">
+                                                            {student.admission_date || '-'}
+                                                        </div>
                                                     </td>
 
                                                     <td className="p-3 text-center">
@@ -654,7 +937,6 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
                                 <AlertTriangle size={40} />
                             </div>
                             <div>
-                                <h3 className="text-3xl font-black text-slate-800 tracking-tight leading-none">Ready to fly?</h3>
                                 <p className="text-slate-400 font-bold mt-2 uppercase tracking-widest text-[10px]">Final check before commitment</p>
                             </div>
                             
@@ -680,12 +962,12 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
                                 </svg>
                                 <div className="absolute inset-0 flex flex-col items-center justify-center">
                                     <span className="text-3xl font-black text-slate-800 tracking-tighter">{Math.round((importProgress.current / importProgress.total) * 100)}%</span>
-                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Syncing</span>
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Processing</span>
                                 </div>
                             </div>
                             <div>
                                 <h3 className="text-xl font-black text-slate-800 tracking-tight flex items-center justify-center gap-2">
-                                    Committing to Cloud <Loader2 size={20} className="animate-spin text-indigo-600" />
+                                    <Loader2 size={24} className="animate-spin text-indigo-600" />
                                 </h3>
                                 <p className="text-slate-400 font-bold mt-1 uppercase tracking-widest text-[10px]">Writing student {importProgress.current} of {importProgress.total}</p>
                             </div>
@@ -698,7 +980,6 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
                                 <CheckCircle2 size={48} />
                             </div>
                             <div>
-                                <h3 className="text-3xl font-black text-slate-800 tracking-tight">Mission Done!</h3>
                                 <p className="text-slate-400 font-bold mt-2 uppercase tracking-widest text-[10px]">Import process finalized</p>
                             </div>
                             
@@ -741,7 +1022,7 @@ export default function ImportStudentModal({ isOpen, onClose, onSuccess }: Impor
                         )}
                         {step === 'confirm' && (
                             <button onClick={handleImport} className="px-10 py-3 bg-slate-900 text-white rounded-2xl font-black text-sm hover:bg-black shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2 group">
-                                <Check size={18} /> Confirm & Import
+                                <Check size={18} /> Confirm
                             </button>
                         )}
                         {step === 'summary' && (

@@ -16,8 +16,9 @@ import {
   Search,
   X,
   ShieldCheck,
-  Calendar,
-  CreditCard
+  CreditCard,
+  ShoppingBag,
+  User
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { signOut } from "firebase/auth";
@@ -63,7 +64,7 @@ export function Sidebar({ isCollapsed, isOpen = false, onClose }: { isCollapsed?
       <aside 
          className={`
             fixed inset-y-0 left-0 z-50 bg-white/80 backdrop-blur-xl border-r border-slate-200/50 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.05)] 
-            transition-all duration-300 ease-in-out md:translate-x-0
+            transition-all duration-300 ease-in-out md:translate-x-0 flex flex-col
             ${isOpen ? 'translate-x-0' : '-translate-x-full'}
             ${isCollapsed ? 'md:w-24' : 'md:w-72 w-72'}
          `}
@@ -89,7 +90,7 @@ export function Sidebar({ isCollapsed, isOpen = false, onClose }: { isCollapsed?
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-4 space-y-2 overflow-y-auto custom-scrollbar overflow-x-hidden">
+        <nav className="flex-1 px-4 space-y-2 overflow-y-auto overflow-x-hidden min-h-0 pb-4 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
             {/* Dashboard - Single Link */}
             <Link 
                 href="/admin/dashboard"
@@ -163,6 +164,18 @@ export function Sidebar({ isCollapsed, isOpen = false, onClose }: { isCollapsed?
                 ]}
             />
 
+            <NavItem 
+                title="Inventory" 
+                icon={<ShoppingBag size={20} />} 
+                activeGroup={activeGroup} 
+                setActiveGroup={setActiveGroup}
+                isCollapsed={isCollapsed}
+                items={[
+                    { label: "Dashboard", href: "/admin/inventory" },
+                    { label: "Categories & Groups", href: "/admin/inventory/groups" },
+                ]}
+            />
+
              <NavItem 
                 title="Insurance" 
                 icon={<ShieldCheck size={20} />} 
@@ -174,10 +187,38 @@ export function Sidebar({ isCollapsed, isOpen = false, onClose }: { isCollapsed?
                 ]}
             />
 
+            {profile?.role === 'superAdmin' && (
+                <NavItem 
+                    title="Settings" 
+                    icon={<Settings size={20} />} 
+                    activeGroup={activeGroup} 
+                    setActiveGroup={setActiveGroup}
+                    isCollapsed={isCollapsed}
+                    items={[
+                        { label: "User Management", href: "/admin/users" },
+                    ]}
+                />
+            )}
+
+            <Link 
+                href="/admin/profile"
+                className={`w-full flex items-center ${isCollapsed ? 'justify-center p-3' : 'justify-between p-3'} rounded-2xl transition-all duration-300 group mb-1 relative overflow-hidden
+                    ${pathname === '/admin/profile' ? 'bg-indigo-50/80 text-indigo-700 shadow-sm' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}
+                `}
+                title={isCollapsed ? "My Profile" : ""}
+            >
+                 <div className={`flex items-center gap-3 relative z-10 ${isCollapsed ? 'justify-center' : ''}`}>
+                    <span className={`transition-colors duration-200 ${pathname === '/admin/profile' ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-600'}`}>
+                        <User size={20} />
+                    </span>
+                    {!isCollapsed && <span className="text-sm font-bold">My Profile</span>}
+                </div>
+            </Link>
+
         </nav>
         
         {/* User Profile / Logout */}
-        <div className="p-4 mt-auto">
+        <div className="p-4 bg-white/80 backdrop-blur-md border-t border-slate-100 flex-shrink-0">
              <button 
                 onClick={handleSignOut}
                 className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} p-3 rounded-xl hover:bg-red-50 text-slate-500 hover:text-red-500 transition-all duration-200`}

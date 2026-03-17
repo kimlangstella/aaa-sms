@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { 
     UserPlus, Search, Filter, Loader2, Pencil, Eye, 
     ArrowUpDown, ArrowUp, ArrowDown, Settings2, X, ChevronDown,
-    Users, Calendar, CreditCard, Shield, Check, MoreVertical, Download, FileSpreadsheet
+    Users, Calendar, CreditCard, Shield, Check, MoreVertical, Download, FileSpreadsheet, Trash2, FileText
 } from "lucide-react";
 import { Student, Branch, Enrollment, Class } from "@/lib/types";
 import { useAuth } from "@/lib/useAuth";
@@ -19,7 +19,6 @@ import { branchService } from "@/services/branchService";
 import { programService } from "@/services/programService";
 import { AddInsuranceModal } from "@/components/modals/AddInsuranceModal";
 import ImportStudentModal from "@/components/modals/ImportStudentModal";
-import StudentActionSelectionModal from "@/components/modals/StudentActionSelectionModal";
 import * as XLSX from "xlsx";
 
 // Column definition
@@ -32,6 +31,7 @@ const ALL_COLUMNS = [
     { key: 'phone', label: 'Phone', sortable: false },
     { key: 'branch', label: 'Branch', sortable: true },
     { key: 'program', label: 'Program', sortable: true },
+    { key: 'className', label: 'Class', sortable: true },
     { key: 'status', label: 'Status', sortable: true },
     { key: 'admission_date', label: 'Admission Date', sortable: true },
     { key: 'payment_status', label: 'Payment', sortable: true }, // Shortened label
@@ -69,7 +69,7 @@ export default function StudentsPage() {
 
     // Column Visibility State
     const [visibleColumns, setVisibleColumns] = useState<string[]>([
-        'action', 'name', 'gender', 'nationality', 'phone', 'branch', 'program', 'status', 'payment_status'
+        'action', 'name', 'gender', 'nationality', 'phone', 'branch', 'program', 'className', 'status', 'payment_status'
     ]);
     
     // UI State
@@ -96,13 +96,17 @@ export default function StudentsPage() {
 
     // Fetch Data
     useEffect(() => {
+        if (!profile) return;
+        
+        const effectiveBranchIds: string[] = []; // Both admin and superAdmin see all
+
         const unsubStudents = subscribeToStudents((data) => {
             setStudents(data);
             setLoading(false);
-        });
-        const unsubBranches = branchService.subscribe(setBranches);
-        const unsubEnrollments = subscribeToEnrollments(setEnrollments);
-        const unsubClasses = subscribeToClasses(setClasses);
+        }, effectiveBranchIds);
+        const unsubBranches = branchService.subscribe(setBranches, effectiveBranchIds);
+        const unsubEnrollments = subscribeToEnrollments(setEnrollments, effectiveBranchIds);
+        const unsubClasses = subscribeToClasses(setClasses, effectiveBranchIds);
         const unsubPrograms = programService.subscribe(setPrograms);
 
         return () => {
@@ -112,7 +116,7 @@ export default function StudentsPage() {
             unsubClasses();
             unsubPrograms();
         };
-    }, []);
+    }, [profile]);
 
     // Helper Functions
     const calculateAge = (dob: string) => {
@@ -157,19 +161,35 @@ export default function StudentsPage() {
             let programName = "N/A";
             const studentEnrollments = enrollments.filter(e => e.student_id === student.student_id);
             
+            // Resolve Class Name
+            let className = "N/A";
+            
             if (studentEnrollments.length > 0) {
-                const programNames = studentEnrollments.map(enr => {
-                    const cls = classes.find(c => c.class_id === enr.class_id);
-                    if (cls) {
-                         const program = programs.find((p: any) => p.id === cls.programId);
-                         return program ? (program.program_name || program.name) : null;
-                    }
+                const matchingClasses = studentEnrollments.map(enr => 
+                    classes.find(c => c.class_id === enr.class_id)
+                ).filter(Boolean) as Class[]; // Filter out undefined and assert type
+                
+                // Find valid programs
+                const programNames = matchingClasses.map(c => {
+                    const prog = programs.find((p: any) => p.id === c?.programId);
+                    if (prog) return prog.name;
                     return null;
                 }).filter(Boolean); // Remove nulls
 
                 if (programNames.length > 0) {
                     // Deduplicate and join
                     programName = Array.from(new Set(programNames)).join(", ");
+                }
+                
+                const classNames = matchingClasses.map(c => {
+                    const timeStr = c.startTime ? `(${c.startTime}-${c.endTime})` : '';
+                    const dayStr = c.days?.length ? c.days.map(d => d.slice(0, 3)).join(', ') : '';
+                    const schedule = `${dayStr}${timeStr}`.trim();
+                    return schedule || c.className;
+                });
+                
+                if (classNames.length > 0) {
+                    className = Array.from(new Set(classNames)).join(" | ");
                 }
             }
             
@@ -178,6 +198,7 @@ export default function StudentsPage() {
                 age: calculateAge(student.dob),
                 branch_name: getBranchName(student.branch_id),
                 program: programName, 
+                className: className,
                 payment_status: latestEnrollment?.payment_status || "N/A",
                 payment_expired: latestEnrollment?.payment_expired || "N/A",
                 payment_note: "N/A",
@@ -275,6 +296,10 @@ export default function StudentsPage() {
     };
 
     const handleDelete = async (studentId: string) => {
+        if (profile?.role !== 'superAdmin') {
+            alert("Only superAdmin can delete students.");
+            return;
+        }
         if (!confirm("Are you sure you want to delete this student?")) return;
         try {
             await deleteStudent(studentId);
@@ -285,6 +310,10 @@ export default function StudentsPage() {
     };
 
     const handleBulkDelete = async () => {
+        if (profile?.role !== 'superAdmin') {
+            alert("Only superAdmin can perform bulk deletions.");
+            return;
+        }
         if (!confirm(`Are you sure you want to delete ${selectedStudents.size} students? This action cannot be undone.`)) return;
         
         try {
@@ -348,8 +377,13 @@ export default function StudentsPage() {
         
         worksheet.addRow([]); // Spacer
 
-        // 2. Main Table Headers (Removed Student ID)
-        const tableHeaders = ['FULL NAME', 'GENDER', 'DOB', 'NATIONALITY', 'BRANCH', 'PROGRAM', 'STATUS', 'ADMISSION', 'PAYMENT'];
+        // 2. Main Table Headers
+        const tableHeaders = [
+            'Name', 'Gender', 'DOB', 'POB', 'Nationality', 
+            'Phone', 'Parent Phone', 'Branch', 'Program', 
+            'Class', 'Status', 'Payment Status', 'Admission Date',
+            'Address', 'Father Name', 'Mother Name'
+        ];
         const header = worksheet.addRow(tableHeaders);
         
         header.eachCell((cell) => {
@@ -377,12 +411,19 @@ export default function StudentsPage() {
                 s.student_name,
                 s.gender,
                 s.dob,
+                s.pob || '',
                 s.nationality,
+                s.phone,
+                s.parent_phone,
                 s.branch_name,
                 s.program,
+                s.className || '', // Class
                 s.status,
+                s.payment_status,
                 s.admission_date,
-                s.payment_status
+                s.address || '',
+                s.father_name || '',
+                s.mother_name || ''
             ]);
 
             // Zebra Striping
@@ -399,12 +440,12 @@ export default function StudentsPage() {
                 cell.border = { bottom: { style: 'thin', color: { argb: 'FFF1F5F9' } } };
 
                 // Status Indicators
-                if (colNumber === 7) { // Status column (shifted left)
+                if (colNumber === 11) { // Status column (Academic)
                     const val = cell.value as string;
                     if (val === 'Active') cell.font = { ...cell.font, color: { argb: 'FF059669' }, bold: true };
                     if (val === 'Hold') cell.font = { ...cell.font, color: { argb: 'FFD97706' }, bold: true };
                 }
-                if (colNumber === 9) { // Payment column (shifted left)
+                if (colNumber === 12) { // Payment Status column
                     const val = cell.value as string;
                     if (val === 'Paid') cell.font = { ...cell.font, color: { argb: 'FF059669' }, bold: true };
                     if (val === 'Unpaid') cell.font = { ...cell.font, color: { argb: 'FFDC2626' }, bold: true };
@@ -437,6 +478,63 @@ export default function StudentsPage() {
         window.URL.revokeObjectURL(url);
     };
 
+    const handleDownloadTemplate = async () => {
+        const ExcelJS = (await import('exceljs')).default;
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('Import_Template');
+
+        // 1. Define Headers
+        const headers = [
+            'Name', 'Gender', 'DOB', 'POB', 'Nationality', 
+            'Phone', 'Parent Phone', 'Branch', 'Program', 
+            'Class', 'Status', 'Payment Status', 'Admission Date',
+            'Address', 'Father Name', 'Mother Name'
+        ];
+        
+        const headerRow = worksheet.addRow(headers);
+        headerRow.eachCell((cell) => {
+            cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FFF8FAFC' }
+            };
+            cell.font = {
+                name: 'Inter',
+                size: 10,
+                bold: true,
+                color: { argb: 'FF475569' }
+            };
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        });
+        headerRow.height = 32;
+
+        // 2. Add Example Row
+        const exampleRow = worksheet.addRow([
+            'Seng Meng', 'Male', '2015-05-20', 'Phnom Penh', 'Cambodian',
+            '012 345 678', '098 765 432', 'Funmall TK', 'Robotic, Taekwondo',
+            'Sat(09:00-10:30), Sun(09:00-10:30)', 'Active', 'Paid',
+            new Date().toISOString().split('T')[0],
+            'Street 271, Sangkat Boeung Tumpun', 'Seng Samnang', 'Keo Sokha'
+        ]);
+        
+        exampleRow.font = { name: 'Inter', size: 10, italic: true, color: { argb: 'FF94A3B8' } };
+
+        // 3. Auto-fit columns
+        worksheet.columns.forEach((column) => {
+            column.width = 20;
+        });
+
+        // 4. Generate and Download
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = window.URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `AAA_Student_Import_Template.xlsx`;
+        anchor.click();
+        window.URL.revokeObjectURL(url);
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-screen">
@@ -465,7 +563,7 @@ export default function StudentsPage() {
                     </div>
                  </div>
 
-                 <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                 <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 sm:gap-3">
                     <button
                         onClick={handleExport}
                         className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-3 sm:px-6 sm:py-3.5 bg-white text-slate-700 rounded-[1.25rem] font-black text-xs sm:text-sm hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 transition-all border border-slate-100 shadow-sm hover:shadow-lg active:scale-95 group"
@@ -475,8 +573,24 @@ export default function StudentsPage() {
                         <span>Export</span>
                     </button>
                     <button
-                        onClick={() => setShowSelectionModal(true)}
-                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3.5 sm:px-8 bg-indigo-600 text-white rounded-[1.25rem] font-black text-xs sm:text-sm hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all hover:-translate-y-0.5 active:scale-95"
+                        onClick={handleDownloadTemplate}
+                        className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-3 sm:px-6 sm:py-3.5 bg-white text-slate-700 rounded-[1.25rem] font-black text-xs sm:text-sm hover:bg-slate-50 hover:text-slate-700 transition-all border border-slate-100 shadow-sm hover:shadow-lg active:scale-95 group"
+                    >
+                        <FileText size={18} className="text-slate-400 group-hover:text-slate-600 transition-colors sm:hidden" />
+                        <FileText size={20} className="text-slate-400 group-hover:text-slate-600 transition-colors hidden sm:block group-hover:scale-110" />
+                        <span>Template</span>
+                    </button>
+                    <button
+                        onClick={() => setShowImportModal(true)}
+                        className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-3 sm:px-6 sm:py-3.5 bg-white text-slate-700 rounded-[1.25rem] font-black text-xs sm:text-sm hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 transition-all border border-slate-100 shadow-sm hover:shadow-lg active:scale-95 group"
+                    >
+                        <Download size={18} className="text-slate-400 group-hover:text-indigo-600 transition-colors sm:hidden" />
+                        <Download size={20} className="text-slate-400 group-hover:text-indigo-600 transition-colors hidden sm:block group-hover:scale-110" />
+                        <span>Import</span>
+                    </button>
+                    <button
+                        onClick={() => router.push('/admin/students/add')}
+                        className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-3 sm:px-8 bg-indigo-600 text-white rounded-[1.25rem] font-black text-xs sm:text-sm hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all hover:-translate-y-0.5 active:scale-95"
                     >
                         <UserPlus size={18} className="sm:hidden" />
                         <UserPlus size={20} className="hidden sm:block" />
@@ -691,68 +805,60 @@ export default function StudentsPage() {
                                                 </div>
                                             </td>
                                             
-                                            {/* Action Column - Moved to the front */}
+                                            {/* Action Column */}
                                             {visibleColumns.includes('action') && (
-                                                <td className="px-4 py-3 text-left">
-                                                    <div className="relative inline-block text-left">
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setActiveActionId(activeActionId === student.student_id ? null : student.student_id);
-                                                            }}
-                                                            className={`p-2 rounded-full transition-all duration-200 ${
-                                                                activeActionId === student.student_id 
-                                                                ? 'bg-indigo-100 text-indigo-600' 
-                                                                : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
-                                                            }`}
+                                                <td className="px-4 py-3">
+                                                    <div className="relative flex items-center group/action">
+                                                        {/* Trigger Button */}
+                                                        <button 
+                                                            className="w-8 h-8 flex items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors bg-white shadow-sm"
+                                                            onClick={(e) => e.stopPropagation()}
                                                         >
                                                             <MoreVertical size={16} />
                                                         </button>
                                                         
-                                                        {activeActionId === student.student_id && (
-                                                            <>
-                                                                <div 
-                                                                    className="fixed inset-0 z-40" 
-                                                                    onClick={() => setActiveActionId(null)}
-                                                                />
-                                                                <div className="absolute left-0 top-full mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-100 py-1 z-50 animate-in fade-in zoom-in-95 duration-200 origin-top-left">
-                                                                    <button
-                                                                        onClick={() => router.push(`/admin/students/${student.student_id}`)}
-                                                                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-indigo-600 flex items-center gap-2"
-                                                                    >
-                                                                        <Eye size={16} /> View Details
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => router.push(`/admin/students/edit/${student.student_id}`)}
-                                                                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-amber-600 flex items-center gap-2"
-                                                                    >
-                                                                        <Pencil size={16} /> Edit Profile
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setSelectedStudentId(student.student_id);
-                                                                            setShowInsuranceModal(true);
-                                                                            setActiveActionId(null);
-                                                                        }}
-                                                                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-emerald-600 flex items-center gap-2"
-                                                                    >
-                                                                        <Shield size={16} /> Insurance
-                                                                    </button>
-                                                                    <div className="h-px bg-slate-100 my-1" />
-                                                                    <button
-                                                                        onClick={() => {
-                                                                           if (confirm('Are you sure you want to delete this student?')) {
-                                                                               deleteStudent(student.student_id);
-                                                                           }
-                                                                           setActiveActionId(null);
-                                                                        }}
-                                                                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-rose-600 hover:bg-rose-50 flex items-center gap-2"
-                                                                    >
-                                                                        <div className="w-4 h-4 flex items-center justify-center">?</div> Delete
-                                                                    </button>
-                                                                </div>
-                                                            </>
-                                                        )}
+                                                        {/* Hover State: Floating Action Box */}
+                                                        <div className="absolute bottom-[calc(100%+8px)] left-0 flex items-center gap-1 p-1.5 bg-white rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] border border-slate-100 opacity-0 invisible group-hover/action:opacity-100 group-hover/action:visible transition-all duration-200 -translate-y-2 group-hover/action:translate-y-0 z-50 pointer-events-none group-hover/action:pointer-events-auto before:content-[''] before:absolute before:-bottom-3 before:left-0 before:w-full before:h-3">
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); router.push(`/admin/students/${student.student_id}`); }}
+                                                                className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                                                                title="View Details"
+                                                            >
+                                                                <Eye size={16} />
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); router.push(`/admin/students/edit/${student.student_id}`); }}
+                                                                className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-amber-50 hover:text-amber-600 transition-colors"
+                                                                title="Edit Profile"
+                                                            >
+                                                                <Pencil size={16} />
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => { 
+                                                                    e.stopPropagation(); 
+                                                                    setSelectedStudentId(student.student_id);
+                                                                    setShowInsuranceModal(true);
+                                                                }}
+                                                                className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
+                                                                title="Insurance"
+                                                            >
+                                                                <Shield size={16} />
+                                                            </button>
+                                                            {profile?.role === 'superAdmin' && (
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        if (confirm('Are you sure you want to delete this student?')) {
+                                                                            deleteStudent(student.student_id);
+                                                                        }
+                                                                    }}
+                                                                    className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                                                                    title="Delete"
+                                                                >
+                                                                    <Trash2 size={16} />
+                                                                </button>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </td>
                                             )}
@@ -804,6 +910,11 @@ export default function StudentsPage() {
                                         {visibleColumns.includes('program') && (
                                             <td className="px-4 py-3">
                                                 <span className="text-sm font-medium text-slate-600">{student.program || '-'}</span>
+                                            </td>
+                                        )}
+                                        {visibleColumns.includes('className') && (
+                                            <td className="px-4 py-3">
+                                                <span className="text-sm font-medium text-slate-600">{student.className || '-'}</span>
                                             </td>
                                         )}
                                         {visibleColumns.includes('status') && (
@@ -955,22 +1066,10 @@ export default function StudentsPage() {
                 />
             )}
             
-            <StudentActionSelectionModal 
-                isOpen={showSelectionModal}
-                onClose={() => setShowSelectionModal(false)}
-                onSelect={(action) => {
-                    setShowSelectionModal(false);
-                    if (action === 'single') {
-                        router.push('/admin/students/add');
-                    } else if (action === 'import') {
-                        setTimeout(() => setShowImportModal(true), 100); 
-                    }
-                }}
-            />
             {/* Floating Selection Bar */}
             {selectedStudents.size > 0 && (
                 <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-10 duration-500">
-                    <div className="bg-slate-900 text-white px-8 py-5 rounded-[1.25rem] shadow-[0_20px_50px_rgba(0,0,0,0.3)] flex items-center gap-8 backdrop-blur-xl border border-white/10">
+                    <div className="bg-indigo-600/95 text-white px-8 py-5 rounded-[1.25rem] shadow-[0_20px_50px_rgba(79,70,229,0.3)] flex items-center gap-8 backdrop-blur-xl border border-white/20">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-2xl bg-indigo-500 flex items-center justify-center text-white font-black">
                                 {selectedStudents.size}
@@ -981,6 +1080,15 @@ export default function StudentsPage() {
                         <div className="w-px h-8 bg-white/10" />
                         
                         <div className="flex items-center gap-4">
+                            {profile?.role === 'superAdmin' && (
+                                <button 
+                                    onClick={handleBulkDelete}
+                                    className="flex items-center gap-2 px-6 py-2.5 bg-rose-500/10 text-rose-400 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all active:scale-95"
+                                >
+                                    <Trash2 size={16} />
+                                    <span>Delete Option</span>
+                                </button>
+                            )}
                             <button 
                                 onClick={() => setSelectedStudents(new Set())}
                                 className="flex items-center gap-2 px-6 py-2.5 bg-white/5 text-slate-400 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-white/10 hover:text-white transition-all active:scale-95"

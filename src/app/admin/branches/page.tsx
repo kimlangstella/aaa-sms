@@ -5,24 +5,28 @@ import { branchService } from "@/services/branchService";
 import { Branch } from "@/lib/types";
 import { Plus, Building2, MapPin, Edit } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
+import { useAuth } from "@/lib/useAuth";
 
 export default function BranchesPage() {
+  const { profile } = useAuth();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ branch_name: "", location: "" });
   const [submitting, setSubmitting] = useState(false);
 
-  const fetchBranches = async () => {
-    setLoading(true);
-    const data = await branchService.getAll();
-    setBranches(data);
-    setLoading(false);
-  };
-
   useEffect(() => {
-    fetchBranches();
-  }, []);
+    if (!profile) return;
+    
+    const branchIds = profile.role === 'admin' ? profile.branchIds : [];
+    
+    const unsub = branchService.subscribe((data) => {
+        setBranches(data);
+        setLoading(false);
+    }, branchIds);
+
+    return () => unsub();
+  }, [profile]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,7 +42,6 @@ export default function BranchesPage() {
       });
       setFormData({ branch_name: "", location: "" });
       setIsModalOpen(false);
-      fetchBranches();
     } catch (error) {
       alert("Failed to create branch");
     } finally {
@@ -50,7 +53,6 @@ export default function BranchesPage() {
     if (confirm("Are you sure you want to delete this branch?")) {
       try {
         await branchService.delete(id);
-        fetchBranches();
       } catch (error) {
         alert("Failed to delete branch");
       }

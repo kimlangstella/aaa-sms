@@ -1,11 +1,15 @@
-export type UserRole = 'admin';
+export type UserRole = 'admin' | 'superAdmin';
 
 export interface AppUser {
     uid: string;
     email: string | null;
     role: UserRole;
     name?: string;
+    branchIds: string[]; // admin: ["branch_1"] or multiple; superAdmin: []
+    active: boolean;
     createdAt?: string;
+    updatedAt?: string;
+    signature_url?: string;
 }
 
 export type Role = 'Admin' | 'Teacher' | 'Student' | 'Parent';
@@ -46,6 +50,8 @@ export interface Program {
     price: number;
     pricePerSession?: number;
     branchId?: string;
+    needs_inventory?: boolean;
+    inventoryItemIds?: string[];
 }
 
 export interface Class {
@@ -101,9 +107,19 @@ export interface Student {
         policy_number: string;
         type: string;
         coverage_amount: number;
+        claimed_amount?: number;
         start_date: string;
         end_date: string;
+        claims?: InsuranceClaim[];
     };
+}
+
+export interface InsuranceClaim {
+    amount: number;
+    date: string;
+    term_id: string;
+    image_url?: string;
+    note?: string;
 }
 
 export interface Enrollment {
@@ -129,6 +145,7 @@ export interface Enrollment {
     start_session: number; // Session number (1-12)
     enrolled_at: string;
     student?: Student; // Optional joined student
+    selectedAddons?: EnrollmentAddon[]; // Snapshot of selected add-ons
 }
 
 export interface Attendance {
@@ -165,4 +182,73 @@ export interface Term {
     program_ids: string[]; // Changed to array for multiple programs
     status: 'Active' | 'Upcoming' | 'Completed' | 'Inactive';
     created_at: string;
+}
+
+export interface InventoryVariant {
+    id: string;
+    name: string; // e.g. "Toddler - S"
+    sku?: string;
+    costPrice?: number;
+    retailPrice?: number;
+    stock: number;
+    lowStockLevel?: number; // Reorder point
+    status: 'In Stock' | 'Out of Stock' | 'Low Stock';
+}
+
+export interface ProductGroup {
+    id: string;
+    branchId: string;
+    name: string;
+    description?: string;
+    created_at: string;
+}
+
+export interface InventoryItem {
+    id: string;
+    branchId: string;
+    programId?: string; // Linked program
+    name: string;
+    groupId?: string; // Links to ProductGroup. id
+    category: 'Uniform' | 'Book' | 'Accessory' | 'Equipment' | 'Other';
+    sku?: string; // For single items
+    costPrice?: number; // For single items
+    price: number; // Retail price (legacy name kept for compatibility)
+    image_url?: string;
+    attributes?: {
+        hasVariants?: boolean;
+        variants?: InventoryVariant[];
+        sizes?: string[]; // e.g. ["S", "M", "L"] (legacy/reference)
+        sizeStock?: { [size: string]: number }; // e.g. { "S": 10, "M": 5 }
+        totalStock?: number; // Current Balance
+        stockIn?: number; // Total Inward
+        stockOut?: number; // Total Outward
+        lowStockLevel?: number; // Reorder Point
+    };
+    created_at: string;
+}
+
+export interface ProgramAddon {
+    id: string; // Document ID
+    programId: string;
+    itemId: string; // Refers to InventoryItem ID
+    type: 'inventory' | 'service';
+    label?: string; // e.g. "Taekwondo Uniform"
+    defaultQty: number;
+    isOptional: boolean;
+    isRecommended?: boolean;
+    limitPerStudent?: number;
+    sortOrder?: number;
+    // Computed/Joined fields (not stored in db)
+    item_name?: string;
+    item_price?: number;
+}
+
+export interface EnrollmentAddon {
+    addonId: string; // Refers to ProgramAddon ID
+    itemId: string;   // Refers to InventoryItem ID, helps for inventory tracking
+    nameSnapshot: string;
+    priceSnapshot: number;
+    qty: number;
+    variantId?: string;
+    variantName?: string;
 }
