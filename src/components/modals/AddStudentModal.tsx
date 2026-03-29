@@ -87,13 +87,14 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
   const [programs, setPrograms] = useState<any[]>([]); // Programs for dropdown
   
   // Temporary state for the "Add Program" sub-modal
-  const [newProgramData, setNewProgramData] = useState({
-      program_id: "",
-      class_id: "",
-      start_session: "",
-      include_next_term: false,
-      admission_date: new Date().toISOString().split('T')[0]
-  });
+    const [newProgramData, setNewProgramData] = useState({
+        program_id: "",
+        variant_id: "",
+        class_id: "",
+        start_session: "",
+        include_next_term: false,
+        admission_date: new Date().toISOString().split('T')[0]
+    });
 
   // Add-ons State
   const [inventoryItems, setInventoryItems] = useState<Record<string, InventoryItem> | null>(null);
@@ -353,7 +354,7 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
       if (program && cls) {
           // Calculate Fee
           const startSession = parseInt(newProgramData.start_session) || 1;
-          const totalSessions = cls.totalSessions || 12; 
+          const totalSessions = cls.totalSessions || 11; 
           const remainingSessions = Math.max(0, totalSessions - startSession + 1);
           
           let feePerSession = 0;
@@ -372,6 +373,22 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
                calculatedPrice += Number(program.price);
           }
           
+          // Apply Variant Price if selected
+          let variantLabel = "";
+          if (newProgramData.variant_id && program.variants) {
+              const variant = program.variants.find((v: any) => v.id === newProgramData.variant_id);
+              if (variant) {
+                  const varPrice = Number(variant.price);
+                  const varFeePerSession = varPrice / totalSessions;
+                  calculatedPrice = varFeePerSession * remainingSessions;
+                  
+                  if (newProgramData.include_next_term) {
+                      calculatedPrice += varPrice;
+                  }
+                  variantLabel = variant.label;
+              }
+          }
+
           // Calculate add-ons price
           const addonsTotal = selectedAddons.reduce((sum, a: any) => sum + ((a.priceSnapshot || a.price || 0) * (a.qty || a.quantity || 1)), 0);
           calculatedPrice += addonsTotal;
@@ -380,6 +397,8 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
               ...newProgramData,
               program_name: program.name, 
               class_name: `${cls.days?.join(', ')} (${cls.startTime} - ${cls.endTime})`,
+              variant_id: newProgramData.variant_id,
+              variant_label: variantLabel,
               total_sessions: totalSessions,
               sessions_to_enroll: remainingSessions,
               price: Number(calculatedPrice.toFixed(2)), 
@@ -396,6 +415,7 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
           // Reset and close
           setNewProgramData({
               program_id: "",
+              variant_id: "",
               class_id: "",
               start_session: "",
               include_next_term: false,
@@ -601,10 +621,11 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
                   
                   payment_status: 'Unpaid', 
                   payment_type: formData.payment_type,
-                  enrollment_status: 'Active',
-                  start_session: Number(prog.start_session),
-                  term: '2026-T1', // TODO: Dynamic Term
-                  selectedAddons: prog.selectedAddons || []
+                   enrollment_status: 'Active',
+                   selectedVariantId: prog.variant_id,
+                   start_session: Number(prog.start_session),
+                   term: '2026-T1', // TODO: Dynamic Term
+                   selectedAddons: prog.selectedAddons || []
               };
               
               // Simple "Allocated Payment" logic for now:
@@ -804,7 +825,10 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
                                     {selectedPrograms.map((prog, idx) => (
                                         <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl">
                                             <div>
-                                                <h4 className="font-bold text-slate-800 text-sm">{prog.program_name}</h4>
+                                                <h4 className="font-bold text-slate-800 text-sm">
+                                                    {prog.program_name} 
+                                                    {prog.variant_label && <span className="text-indigo-600 font-bold ml-1">({prog.variant_label})</span>}
+                                                </h4>
                                                 <p className="text-xs text-slate-500">Class: {prog.class_name} • Session: {prog.start_session}</p>
                                                 {prog.selectedAddons && prog.selectedAddons.length > 0 && (
                                                     <p className="text-[10px] text-slate-400 mt-1">
@@ -863,9 +887,42 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
                                         {programs
                                             .filter(p => !selectedPrograms.some(sp => sp.program_id === p.id) || p.id === newProgramData.program_id)
                                             .map(p => (
-                                            <option key={p.id} value={p.id}>{p.name} (${p.price})</option>
+                                            <option key={p.id} value={p.id}>{p.name} {p.price ? `($${p.price})` : ''}</option>
                                         ))}
                                     </Select>
+
+                                    {newProgramData.program_id && programs.find(p => p.id === newProgramData.program_id)?.variants?.length > 0 && (
+                                        <div className="space-y-3">
+                                            <label className="text-xs font-black text-slate-500 uppercase tracking-widest ml-1">Select Sub-Program / Option</label>
+                                            <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                                                {programs.find(p => p.id === newProgramData.program_id)?.variants.map((v: any) => (
+                                                    <div 
+                                                        key={v.id}
+                                                        onClick={() => setNewProgramData(prev => ({ ...prev, variant_id: v.id }))}
+                                                        className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex justify-between items-center group ${
+                                                            newProgramData.variant_id === v.id 
+                                                                ? 'border-indigo-500 bg-indigo-50/30' 
+                                                                : 'border-slate-100 bg-white hover:border-indigo-200 hover:bg-slate-50'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-3">
+                                                            <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all ${
+                                                                newProgramData.variant_id === v.id ? 'border-indigo-500 bg-indigo-500' : 'border-slate-200 bg-white'
+                                                            }`}>
+                                                                {newProgramData.variant_id === v.id && <div className="w-1.5 h-1.5 rounded-full bg-white animate-in zoom-in-50 duration-200" />}
+                                                            </div>
+                                                            <span className={`text-sm font-bold transition-colors ${newProgramData.variant_id === v.id ? 'text-indigo-600' : 'text-slate-600'}`}>
+                                                                {v.label} {v.time ? <span className="text-[10px] opacity-70 ml-1">({v.time})</span> : ''}
+                                                            </span>
+                                                        </div>
+                                                        <span className={`text-sm font-black transition-colors ${newProgramData.variant_id === v.id ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-600'}`}>
+                                                            ${v.price}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <Select 
                                         label="Class" 
@@ -873,7 +930,7 @@ export function AddStudentModal({ isOpen, onClose, onSuccess }: AddStudentModalP
                                         value={newProgramData.class_id} 
                                         onChange={(e: any) => setNewProgramData(prev => ({ ...prev, class_id: e.target.value }))}
                                         required
-                                        disabled={!newProgramData.program_id}
+                                        disabled={!newProgramData.program_id || (programs.find(p => p.id === newProgramData.program_id)?.variants?.length > 0 && !newProgramData.variant_id)}
                                     >
                                         <option value="">Select Class</option>
                                         {classes

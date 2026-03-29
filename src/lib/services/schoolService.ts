@@ -94,14 +94,16 @@ export const uploadImage = async (file: File, path: string) => {
 
 // --- Student Services ---
 
-export const addStudent = async (studentData: Omit<Student, 'student_id' | 'created_at'>) => {
+export const addStudent = async (studentData: Omit<Student, 'student_id' | 'created_at'>, actorName?: string) => {
     try {
+        const now = new Date().toISOString();
+        const actor = actorName || 'Admin';
         const docRef = await addDoc(studentsCol, {
             ...studentData,
-            created_at: new Date().toISOString(),
-            created_by: 'Admin User', // TODO: Replace with actual auth user
-            modified_at: new Date().toISOString(),
-            modified_by: 'Admin User'
+            created_at: now,
+            created_by: actor,
+            modified_at: now,
+            modified_by: actor
         });
         return { id: docRef.id, ...studentData };
     } catch (error) {
@@ -297,13 +299,13 @@ export const deactivateStudentEnrollments = async (studentId: string, status: 'I
     await Promise.all(updatePromises);
 };
 
-export const updateStudent = async (id: string, data: Partial<Student>) => {
+export const updateStudent = async (id: string, data: Partial<Student>, actorName?: string) => {
     try {
         const docRef = doc(db, "students", id);
         await updateDoc(docRef, {
             ...data,
             modified_at: new Date().toISOString(),
-            modified_by: 'Admin User' // TODO: Replace with actual auth user
+            modified_by: actorName || 'Admin'
         });
         return true;
     } catch (error) {

@@ -133,13 +133,15 @@ export default function AddStudentPage() {
   const [editingProgramIndex, setEditingProgramIndex] = useState<number | null>(null);
   
   // Temporary state for the "Add Program" sub-modal
-  const [newProgramData, setNewProgramData] = useState({
-      program_id: "",
-      class_id: "",
-      start_session: "1",
-      include_next_term: false,
-      admission_date: new Date().toISOString().split('T')[0]
-  });
+  const [newProgramData, setNewProgramData] = useState<any>({
+        program_id: "",
+        class_id: "",
+        admission_date: new Date().toISOString().split('T')[0],
+        discount: 0,
+        paid_amount: 0,
+        payment_type: "Cash"
+    });
+    const [selectedProgramName, setSelectedProgramName] = useState("");
 
   // Add-ons State
   const [inventoryItems, setInventoryItems] = useState<Record<string, InventoryItem> | null>(null);
@@ -376,18 +378,20 @@ export default function AddStudentPage() {
       }));
   };
 
-  const resetNewProgramModal = () => {
-      setNewProgramData({
-          program_id: "",
-          class_id: "",
-          start_session: "1",
-          include_next_term: false,
-          admission_date: new Date().toISOString().split('T')[0]
-      });
-      setSelectedAddons([]);
-      setEditingProgramIndex(null);
-      setIsAddingProgram(false);
-  };
+    const resetNewProgramModal = () => {
+        setNewProgramData({
+            program_id: "",
+            class_id: "",
+            admission_date: new Date().toISOString().split('T')[0],
+            discount: 0,
+            paid_amount: 0,
+            payment_type: "Cash"
+        });
+        setSelectedProgramName("");
+        setEditingProgramIndex(null);
+        setIsAddingProgram(false);
+        // setHasSubmittedDiscount(false); // This variable is not defined in the provided code.
+    };
 
   // Image State
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -437,10 +441,40 @@ export default function AddStudentPage() {
       setPrograms([]);
       
       if (formData.branch_id) {
-          // Fetch Programs
-          programService.getAll([formData.branch_id]).then(setPrograms).catch(console.error);
-          // Classes will be fetched when program is selected in sub-modal or we can fetch all for branch
-          getClasses(formData.branch_id).then(setClasses).catch(console.error); 
+          // 1. Fetch ALL Programs to safely map legacy class program_names
+          const unsubAllPrograms = programService.subscribe((allProgs) => {
+              const programMap: Record<string, any> = {};
+              allProgs.forEach(p => { programMap[p.id] = p; });
+              
+              // Filter programs for the dropdown to only the current branch
+              const branchProgs = allProgs.filter(p => !p.branchId || p.branchId === formData.branch_id);
+              setPrograms(branchProgs);
+              
+              // 2. Fetch Classes and map program_name
+              getClasses(formData.branch_id).then((fetchedClasses) => {
+                  const mappedClasses = fetchedClasses.map(c => {
+                      const prog = programMap[c.programId];
+                      
+                      let guessedName = undefined;
+                      if (!prog && !c.program_name) {
+                          const possibleProgs = Object.values(programMap);
+                          const match = possibleProgs.find(p => {
+                              const baseName = (p.name || '').toLowerCase().split(' ')[0].replace(/s$/, '');
+                              return (c.className || '').toLowerCase().includes(baseName);
+                          });
+                          if (match) guessedName = match.name;
+                      }
+
+                      return {
+                          ...c,
+                          program_name: prog ? prog.name : (c.program_name || guessedName || undefined)
+                      };
+                  });
+                  setClasses(mappedClasses);
+              }).catch(console.error);
+          });
+          
+          return () => unsubAllPrograms();
       } else {
           setClasses([]);
           setPrograms([]);
@@ -535,14 +569,22 @@ export default function AddStudentPage() {
         const totalSessions = cls.totalSessions || 11;
         const actualStartSession = Math.max(1, totalSessions - sessionsToEnroll + 1);
         
-        // Fee Logic:
-        // 1. If program has specific session_fee, use it.
-        // 2. Else calculate per-session from total price / total sessions.
+        let basePrice = Number(program.price);
+        let baseSessionFee = program.session_fee ? Number(program.session_fee) : null;
+        
+        if (newProgramData.variant_id && program.variants) {
+            const variant = program.variants.find((v: any) => v.id === newProgramData.variant_id);
+            if (variant) {
+                basePrice = Number(variant.price);
+                baseSessionFee = variant.session_fee ? Number(variant.session_fee) : null;
+            }
+        }
+        
         let feePerSession = 0;
-        if (program.session_fee) {
-            feePerSession = Number(program.session_fee);
+        if (baseSessionFee) {
+            feePerSession = baseSessionFee;
         } else {
-            feePerSession = Number(program.price) / totalSessions;
+            feePerSession = basePrice / totalSessions;
         }
 
         let calculatedPrice = feePerSession * sessionsToEnroll;
@@ -551,7 +593,7 @@ export default function AddStudentPage() {
 
         // Add next term if selected (full program price)
         if (newProgramData.include_next_term) {
-             calculatedPrice += Number(program.price);
+             calculatedPrice += basePrice;
         }
 
         // Calculate add-ons price
@@ -597,17 +639,13 @@ export default function AddStudentPage() {
         resetNewProgramModal();
     }
   };
-
   const handleEditProgram = (index: number) => {
       const prog = selectedPrograms[index];
-      setNewProgramData({
-          program_id: prog.program_id,
-          class_id: prog.class_id,
-          // Use sessions_to_enroll for the UI quantity field
-          start_session: (prog.sessions_to_enroll || prog.start_session || "1").toString(),
-          include_next_term: prog.include_next_term || false,
-          admission_date: prog.admission_date || new Date().toISOString().split('T')[0]
-      });
+      setNewProgramData({ ...prog });
+      // Find the master program to set the category name
+      const masterProgram = programs.find(p => p.id === prog.program_id);
+      if (masterProgram) setSelectedProgramName(masterProgram.name);
+      
       setSelectedAddons(prog.addons || []); // Load stored addons
       setEditingProgramIndex(index);
       setIsAddingProgram(true);
@@ -823,7 +861,8 @@ export default function AddStudentPage() {
               branch_name: branches.find(b => b.branch_id === formData.branch_id)?.branch_name || ""
           };
 
-          const newStudent = await addStudent(studentPayload);
+          const actorName = profile?.name || profile?.email || 'Admin';
+          const newStudent = await addStudent(studentPayload, actorName);
           const newEnrollments = [];
 
 
@@ -860,7 +899,16 @@ export default function AddStudentPage() {
                    // Logic was: calculatedPrice = (feePerSession * remainingSessions) + (includeNext ? program.price : 0)
                    
                    const originalProgram = programs.find(p => p.id === prog.program_id);
-                   const baseProgramPrice = Number(originalProgram?.price || 0); // Full term price
+                   let baseProgramPrice = Number(originalProgram?.price || 0); // Full term price
+                   let baseSessionFee = originalProgram?.session_fee ? Number(originalProgram.session_fee) : null;
+                   
+                   if (prog.variant_id && originalProgram?.variants) {
+                       const variant = originalProgram.variants.find((v: any) => v.id === prog.variant_id);
+                       if (variant) {
+                           baseProgramPrice = Number(variant.price);
+                           baseSessionFee = variant.session_fee ? Number(variant.session_fee) : null;
+                       }
+                   }
                    
                    const nextTermFee = baseProgramPrice;
                    const currentTermFee = fullPrice - nextTermFee;
@@ -882,7 +930,7 @@ export default function AddStudentPage() {
                       payment_type: formData.payment_type,
                       enrollment_status: 'Active',
 
-                      session_fee: Number(originalProgram?.session_fee || (baseProgramPrice / (prog.total_sessions || 1))),
+                      session_fee: Number(baseSessionFee || (baseProgramPrice / (prog.total_sessions || 1))),
                       start_session: Number(prog.start_session || 1),
                       include_next_term: false, // Handled by separate enrollment
                       term: activeTerm.term_name || '',
@@ -928,7 +976,7 @@ export default function AddStudentPage() {
                       payment_type: formData.payment_type,
                       enrollment_status: 'Active', // Or 'Upcoming'? User said "student will have attendance in next term also", usually means Active in that term context.
                       
-                      session_fee: Number(originalProgram?.session_fee || (baseProgramPrice / (prog.total_sessions || 1))),
+                      session_fee: Number(baseSessionFee || (baseProgramPrice / (prog.total_sessions || 1))),
                       start_session: 1, // Next term starts at 1
                       include_next_term: false,
                       term: nextTerm.term_name || '',
@@ -1592,34 +1640,148 @@ export default function AddStudentPage() {
                         <div className="grid grid-cols-1 gap-6">
                             <Select 
                                 label="Program" 
-                                name="program_id" 
-                                value={newProgramData.program_id} 
-                                onChange={(e: any) => setNewProgramData(prev => ({ ...prev, program_id: e.target.value }))}
+                                value={selectedProgramName} 
+                                onChange={(e: any) => {
+                                    const name = e.target.value;
+                                    setSelectedProgramName(name);
+                                    const matching = programs.filter(p => p.name === name);
+                                    if (matching.length === 1) {
+                                        setNewProgramData(prev => ({ ...prev, program_id: matching[0].id, class_id: "" }));
+                                    } else {
+                                        setNewProgramData(prev => ({ ...prev, program_id: "", class_id: "" }));
+                                    }
+                                }}
                                 required
                             >
                                 <option value="">Select Program</option>
-                                {programs
-                                    .filter(p => !selectedPrograms.some(sp => sp.program_id === p.id) || p.id === newProgramData.program_id)
-                                    .map(p => (
-                                    <option key={p.id} value={p.id}>{p.name}</option>
-                                ))}
+                                {Array.from(new Set(programs.map(p => p.name)))
+                                    .filter(name => !selectedPrograms.some((sp, idx) => {
+                                        const p = programs.find(prog => prog.id === sp.program_id);
+                                        return p?.name === name && idx !== editingProgramIndex;
+                                    }))
+                                    .map((name: any) => <option key={name} value={name}>{name}</option>)}
                             </Select>
+
+                            {(() => {
+                                if (!selectedProgramName) return null;
+                                const tiers = programs.filter(p => p.name === selectedProgramName).flatMap(p => {
+                                    if (p.variants && p.variants.length > 0) {
+                                        return p.variants.map((v: any) => ({
+                                            id: `${p.id}_${v.id}`,
+                                            program_id: p.id,
+                                            variant_id: v.id,
+                                            variant_name: v.label || v.time || 'Variant',
+                                            price: parseFloat(v.price) || 0,
+                                            sessions: p.total_sessions || p.durationSessions || 0,
+                                            time: v.time
+                                        }));
+                                    } else {
+                                        return [{
+                                            id: p.id,
+                                            program_id: p.id,
+                                            variant_id: undefined,
+                                            variant_name: undefined,
+                                            price: parseFloat(p.price) || 0,
+                                            sessions: p.total_sessions || p.durationSessions || 0,
+                                            time: undefined
+                                        }];
+                                    }
+                                });
+
+                                // Deduplicate identical tiers from multiple programs with the same name
+                                const uniqueTiersMap = new Map();
+                                tiers.forEach(t => {
+                                    // Ignore variant_name to ensure visually identical tiers merge even if their hidden labels differ slightly in the DB
+                                    const key = `${t.price}-${t.sessions}-${t.time || ''}`;
+                                    if (!uniqueTiersMap.has(key)) {
+                                        uniqueTiersMap.set(key, t);
+                                    }
+                                });
+                                const uniqueTiers = Array.from(uniqueTiersMap.values());
+
+                                // Only show tier selectors if there are ACTUAL differences (hence uniqueTiers)
+                                if (uniqueTiers.length <= 1) {
+                                    // If there's only 1 unique tier, but they haven't set the program_id yet, auto-set it
+                                    if (uniqueTiers.length === 1 && newProgramData.program_id !== uniqueTiers[0].program_id) {
+                                        setTimeout(() => {
+                                            setNewProgramData((prev: any) => ({
+                                                ...prev,
+                                                program_id: uniqueTiers[0].program_id,
+                                                variant_id: uniqueTiers[0].variant_id,
+                                                variant_name: uniqueTiers[0].variant_name,
+                                                class_id: ""
+                                            }));
+                                        }, 0);
+                                    }
+                                    return null;
+                                }
+
+                                return (
+                                    <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Select Tier (Price & Sessions)</label>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            {uniqueTiers.map(t => (
+                                                <button
+                                                    type="button"
+                                                    key={t.id}
+                                                    onClick={() => setNewProgramData((prev: any) => ({ 
+                                                        ...prev, 
+                                                        program_id: t.program_id, 
+                                                        variant_id: t.variant_id,
+                                                        variant_name: t.variant_name,
+                                                        class_id: "" 
+                                                    }))}
+                                                    className={`p-3 rounded-xl border-2 text-left transition-all ${newProgramData.program_id === t.program_id && newProgramData.variant_id === t.variant_id ? 'border-indigo-600 bg-indigo-50 shadow-sm' : 'border-slate-100 bg-white hover:border-indigo-200'}`}
+                                                >
+                                                    <div className="font-black text-slate-800 text-sm">${t.price}</div>
+                                                    <div className="text-[11px] font-bold text-slate-500 mt-0.5">{t.sessions} Sessions {t.time ? `(${t.time})` : ''}</div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
 
                             <Select 
                                 label="Class" 
                                 name="class_id" 
-                                value={newProgramData.class_id} 
-                                onChange={(e: any) => setNewProgramData(prev => ({ ...prev, class_id: e.target.value }))}
+                                value={newProgramData.class_id || ""} 
+                                onChange={(e: any) => setNewProgramData((prev: any) => ({ ...prev, class_id: e.target.value }))}
                                 required
+                                disabled={!newProgramData.program_id && !selectedProgramName}
                             >
                                 <option value="">Select Class</option>
-                                {classes
-                                    .filter(c => !newProgramData.program_id || c.programId === newProgramData.program_id) 
-                                    .map(c => (
-                                    <option key={c.class_id} value={c.class_id}>
-                                        {`${c.days?.length ? c.days.map(d => d.slice(0, 3)).join(', ') : ''}${c.startTime ? ` (${c.startTime}-${c.endTime})` : ''}`.trim() || c.className}
-                                    </option>
-                                ))}
+                                 {classes
+                                    .filter(c => {
+                                        if (!newProgramData.program_id) return true;
+                                        const selectedP = programs.find(p => p.id === newProgramData.program_id);
+                                        if (!selectedP) return c.programId === newProgramData.program_id;
+                                        
+                                        // Tier 1: Exact programId match (ideal case)
+                                        if (c.programId === newProgramData.program_id) return true;
+                                        
+                                        // Tier 2: Class's program resolves to the same name
+                                        const classP = programs.find(p => p.id === c.programId);
+                                        if (classP && classP.name === selectedP.name) return true;
+                                        
+                                        // Tier 3: Saved program_name matches
+                                        if (c.program_name && c.program_name === selectedP.name) return true;
+                                        
+                                        // Tier 4: Fuzzy class name match (for orphaned records with no saved program_name)
+                                        const baseName = (selectedP.name || '').toLowerCase().split(' ')[0].replace(/s$/, '');
+                                        if (baseName && (c.className || '').toLowerCase().includes(baseName)) return true;
+                                        
+                                        return false;
+                                    })
+                                    .map(c => {
+                                        const daysFormatted = Array.isArray(c.days) ? c.days.map((d: string) => d.slice(0, 3)).join(', ') : (typeof c.days === 'string' ? c.days : '');
+                                        const scheduleStr = `${daysFormatted}${c.startTime ? ` (${c.startTime}-${c.endTime})` : ''}`.trim();
+                                        return (
+                                            <option key={c.class_id} value={c.class_id}>
+                                                {scheduleStr || c.className}
+                                            </option>
+                                        );
+                                    })}
                             </Select>
                         </div>
 

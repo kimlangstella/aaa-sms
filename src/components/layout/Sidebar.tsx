@@ -243,10 +243,8 @@ function NavItem({ title, icon, items, activeGroup, setActiveGroup, isCollapsed 
 
     const isActive = items.some((i: any) => {
         if (i.href === '/admin/dashboard' && pathname !== '/admin/dashboard') return false; 
-        if (i.href.includes('?')) {
-            return currentPath === i.href || currentPath.startsWith(i.href + '&'); 
-        }
-        return pathname.startsWith(i.href);
+        const basePath = i.href.split('?')[0];
+        return pathname === basePath || pathname.startsWith(basePath + '/');
     });
     
     // Auto-expand if child is active and not collapsed

@@ -218,7 +218,7 @@ export default function TrackAttendancePage() {
                     term.start_date,
                     term.end_date,
                     cls.days,
-                    cls.totalSessions || 12
+                    cls.totalSessions || 11
                 );
                 newSessionDates[cls.class_id] = dates;
             }
@@ -383,7 +383,7 @@ export default function TrackAttendancePage() {
     const generateExportHTML = (classData: any, isPrint: boolean, options: any) => {
         const enrollments = getClassEnrollments(classData.class_id);
         const dates = sessionDates[classData.class_id] || {};
-        const totalSessions = classData.totalSessions || 12;
+        const totalSessions = classData.totalSessions || 11;
         const termName = currentTerm ? currentTerm.term_name : (terms.find(t => t.term_id === selectedTerm)?.term_name || 'All Terms');
 
         return `
@@ -577,7 +577,7 @@ export default function TrackAttendancePage() {
         classesToExport.forEach(cls => {
             const enrollments = getClassEnrollments(cls.class_id);
             const dates = sessionDates[cls.class_id] || {};
-            const totalSessions = cls.totalSessions || 12;
+            const totalSessions = cls.totalSessions || 11;
             
             content += `
                 <div class="class-container">
@@ -632,7 +632,7 @@ export default function TrackAttendancePage() {
                                             ${item.student?.student_name.toUpperCase()}
                                         </td>
                                         <td style="font-size: 10px; font-weight: bold; color: #475569; text-align: center;">
-                                            ${(cls.totalSessions || 12) - (item.enrollment.start_session || 1) + 1} Session
+                                            ${(cls.totalSessions || 11) - (item.enrollment.start_session || 1) + 1} Session
                                         </td>
                                         ${sessionCells}
                                         <td></td>

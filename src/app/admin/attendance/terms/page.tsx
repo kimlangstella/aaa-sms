@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Calendar, Plus, Pencil, X, Loader2, Filter, CheckCircle2, CalendarCheck, Building2, ChevronDown, DollarSign, Eye } from "lucide-react";
+import { Calendar, Plus, Pencil, X, Loader2, Filter, CheckCircle2, CalendarCheck, Building2, ChevronDown, DollarSign, Eye, Trash2 } from "lucide-react";
 import { Term, Branch } from "@/lib/types";
 import { termService } from "@/services/termService";
 import { branchService } from "@/services/branchService";
 import { programService } from "@/services/programService";
+import { useAuth } from "@/lib/useAuth";
 
 export default function TermsPage() {
+    const { isSuperAdmin } = useAuth();
     const router = useRouter();
     const [terms, setTerms] = useState<Term[]>([]);
     const [branches, setBranches] = useState<Branch[]>([]);
@@ -600,6 +602,19 @@ export default function TermsPage() {
                                         >
                                             {isTermActive(term) ? <Pencil size={15} /> : <Eye size={15} />}
                                         </button>
+
+                                        {isSuperAdmin && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDelete(term.term_id);
+                                                }}
+                                                className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-50 text-slate-400 hover:text-rose-600 hover:bg-white hover:shadow-md border border-transparent hover:border-rose-100 transition-all"
+                                                title="Delete Term"
+                                            >
+                                                <Trash2 size={15} />
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
 

@@ -134,6 +134,15 @@ function ClassCard({ cls, enrollments, onClick, onEdit, onDelete, branchName, ro
                 >
                     <Pencil size={14} />
                 </button>
+                {profile?.role === 'superAdmin' && (
+                    <button 
+                       onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                       className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                       title="Delete Class"
+                    >
+                       <Trash2 size={14} />
+                    </button>
+                )}
                 <button 
                     onClick={handleViewAttendance}
                     className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
@@ -149,6 +158,7 @@ function ClassCard({ cls, enrollments, onClick, onEdit, onDelete, branchName, ro
 }
 
 function ClassListRow({ cls, enrollments, onClick, onEdit, onDelete, branchName, role }: { cls: Class, enrollments: Enrollment[], onClick: () => void, onEdit: () => void, onDelete: () => void, branchName: string, role?: string }) {
+  const { profile } = useAuth();
   const activeEnrollments = enrollments.filter(e => e.class_id === cls.class_id && (e.enrollment_status === 'Active' || e.enrollment_status === 'Hold'));
   const count = activeEnrollments.length;
   const capacity = cls.maxStudents || 0;
@@ -196,7 +206,7 @@ function ClassListRow({ cls, enrollments, onClick, onEdit, onDelete, branchName,
               >
                   <Pencil size={14} />
               </button>
-              {role === 'superAdmin' && (
+              {profile?.role === 'superAdmin' && (
                   <button 
                      onClick={(e) => { e.stopPropagation(); onDelete(); }}
                      className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-all"
@@ -489,7 +499,8 @@ export default function EnrollmentsPage() {
 
     // Filter Program
     if (filterProgram) {
-        result = result.filter(c => c.programId === filterProgram);
+        const matchingProgramIds = programs.filter(p => p.name === filterProgram).map(p => p.id);
+        result = result.filter(c => matchingProgramIds.includes(c.programId) || c.program_name === filterProgram);
     }
 
     // Filter Day
@@ -1003,10 +1014,11 @@ export default function EnrollmentsPage() {
                                className="pl-4 pr-10 py-2.5 bg-white border-2 border-slate-100 rounded-xl font-bold text-sm text-slate-700 outline-none focus:border-indigo-500 transition-all appearance-none cursor-pointer min-w-[160px]"
                            >
                                <option value="">All Programs</option>
-                               {programs
+                               {Array.from(new Set(programs
                                    .filter(p => !filterBranch || p.branchId === filterBranch)
-                                   .map(p => (
-                                   <option key={p.id} value={p.id}>{p.name}</option>
+                                   .map(p => p.name)))
+                                   .map((name: any) => (
+                                   <option key={name} value={name}>{name}</option>
                                ))}
                            </select>
                             <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
@@ -1081,6 +1093,8 @@ function CreateClassForm({ onCancel, onSuccess }: { onCancel: () => void, onSucc
     const [branches, setBranches] = useState<Branch[]>([]);
     const [selectedBranchId, setSelectedBranchId] = useState("");
     const [programs, setPrograms] = useState<any[]>([]);
+    const [selectedProgramName, setSelectedProgramName] = useState("");
+    const [selectedProgramId, setSelectedProgramId] = useState("");
     const [selectedDays, setSelectedDays] = useState<string[]>([]);
     
     const [loading, setLoading] = useState(false);
@@ -1098,16 +1112,28 @@ function CreateClassForm({ onCancel, onSuccess }: { onCancel: () => void, onSucc
     }, []);
 
     useEffect(() => {
+        // Reset program selection when branch changes
+        setSelectedProgramName("");
+        setSelectedProgramId("");
+        
         if (!selectedBranchId) {
             setPrograms([]);
             return;
         }
-        const unsubscribe = programService.subscribe(setPrograms);
+        const unsubscribe = programService.subscribe(setPrograms, [selectedBranchId]);
         return () => unsubscribe();
     }, [selectedBranchId]);
 
-    // Filter programs by branch if applicable
-    const filteredPrograms = programs.filter(p => !p.branchId || p.branchId === selectedBranchId);
+    // Unique program names for the dropdown (legacy logic removed)
+
+    // Deduplicate program versions for display (same name, price, sessions)
+    const uniquePrograms = programs.filter((p, index, self) => 
+        index === self.findIndex((t) => (
+            t.name === p.name && 
+            t.price === p.price && 
+            (t.total_sessions || t.durationSessions || 0) === (p.total_sessions || p.durationSessions || 0)
+        ))
+    );
 
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
@@ -1127,19 +1153,21 @@ function CreateClassForm({ onCancel, onSuccess }: { onCancel: () => void, onSucc
         const isDuplicate = classes.some(c => 
             c.branchId === selectedBranchId &&
             c.className.trim().toLowerCase() === (data.className as string).trim().toLowerCase() &&
+            c.programId === selectedProgramId &&
             c.startTime === data.startTime &&
             c.endTime === data.endTime &&
             normalizeDays(c.days) === newDaysIdx
         );
 
         if (isDuplicate) {
-             setMsg("A class with this name, schedule, and branch already exists.");
+             setMsg("A class with this name, program, and schedule already exists in this branch.");
              setLoading(false);
              return;
         }
 
         const payload = {
             ...data,
+            programId: selectedProgramId,
             days: selectedDays,
             branchId: selectedBranchId
         };
@@ -1188,16 +1216,26 @@ function CreateClassForm({ onCancel, onSuccess }: { onCancel: () => void, onSucc
                 </div>
 
                 <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Select Program</label>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Program</label>
                     <div className="relative">
                         <select 
-                            name="programId" 
+                            value={selectedProgramName}
+                            onChange={(e) => {
+                                const name = e.target.value;
+                                setSelectedProgramName(name);
+                                const matching = programs.filter(p => p.name === name);
+                                if (matching.length > 0) {
+                                    setSelectedProgramId(matching[0].id);
+                                } else {
+                                    setSelectedProgramId("");
+                                }
+                            }}
                             required 
                             disabled={!selectedBranchId}
                             className="w-full px-4 py-3 rounded-xl bg-slate-50 border-2 border-slate-100 text-slate-900 text-sm font-bold focus:bg-white focus:border-indigo-500 outline-none transition-all appearance-none disabled:opacity-50"
                         >
-                            <option value="">{selectedBranchId ? 'Select Curricula...' : 'Choose Branch First'}</option>
-                            {filteredPrograms.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            <option value="">{selectedBranchId ? 'Select Program...' : 'Choose Branch First'}</option>
+                            {Array.from(new Set(programs.map(p => p.name))).map((name: any) => <option key={name} value={name}>{name}</option>)}
                         </select>
                         <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 rotate-90 text-slate-400 pointer-events-none" size={16} />
                     </div>
@@ -1205,7 +1243,7 @@ function CreateClassForm({ onCancel, onSuccess }: { onCancel: () => void, onSucc
 
                 <Input label="Class Name" name="className" required placeholder="e.g. Morning A" />
                 
-                {/* Custom Days Dropdown */}
+                {/* Custom Days Dropdown (Reverted from Checkboxes) */}
                 <div className="space-y-1.5 relative">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Schedule</label>
                     <div className="relative group">
@@ -1371,28 +1409,85 @@ function EditClassModal({ cls, onClose, onSuccess }: { cls: Class, onClose: () =
     const [ PROGRAMS, setPrograms ] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [msg, setMsg] = useState("");
+    const [allClasses, setAllClasses] = useState<Class[]>([]);
+
+    useEffect(() => {
+        const unsub = subscribeToClasses(setAllClasses);
+        return () => unsub();
+    }, []);
 
     // Form Stats
     const [selectedBranchId, setSelectedBranchId] = useState(cls.branchId || "");
-    const [programId, setProgramId] = useState(cls.programId || "");
+    const [selectedProgramName, setSelectedProgramName] = useState(cls.program_name || "");
+    const [selectedProgramId, setSelectedProgramId] = useState(cls.programId || "");
     const [selectedDays, setSelectedDays] = useState<string[]>(
         Array.isArray(cls.days) ? cls.days : typeof cls.days === 'string' ? (cls.days as string).split(',').map(s => s.trim()) : []
     );
 
     useEffect(() => {
         const unsub = branchService.subscribe(setBranches);
-        const unsubP = programService.subscribe(setPrograms);
+        const unsubP = programService.subscribe(setPrograms, selectedBranchId ? [selectedBranchId] : undefined);
         return () => { unsub(); unsubP(); };
-    }, []);
+    }, [selectedBranchId]);
 
-    // Filter programs
-    const filteredPrograms = PROGRAMS.filter(p => !p.branchId || p.branchId === selectedBranchId);
+    // Resolve programId by name if it's missing (legacy data support)
+    useEffect(() => {
+        if (!selectedProgramId && cls.program_name && PROGRAMS.length > 0) {
+            const match = PROGRAMS.find(p => p.name === cls.program_name);
+            if (match) setSelectedProgramId(match.id);
+        }
+    }, [PROGRAMS, selectedProgramId, cls.program_name]);
+
+    // Handle branch change relative to original
+    useEffect(() => {
+        if (selectedBranchId && selectedBranchId !== cls.branchId) {
+            setSelectedProgramId("");
+        }
+    }, [selectedBranchId, cls.branchId]);
+
+    // Deduplicate program versions for display (same name, price, sessions)
+    const uniquePROGRAMS = PROGRAMS.filter((p, index, self) => 
+        index === self.findIndex((t) => (
+            t.name === p.name && 
+            t.price === p.price && 
+            (t.total_sessions || t.durationSessions || 0) === (p.total_sessions || p.durationSessions || 0)
+        ))
+    );
+
+    // Versions
+    const programVersions = PROGRAMS.filter(p => p.name === selectedProgramName);
 
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
         setLoading(true);
+        setMsg("");
         const formData = new FormData(e.currentTarget);
         const data = Object.fromEntries(formData);
+
+        // Duplicate Check
+        const normalizeDays = (d: any) => {
+            if (Array.isArray(d)) return [...d].sort().join(',');
+            if (typeof d === 'string') return d.split(',').map(s => s.trim()).sort().join(',');
+            return '';
+        };
+
+        const newDaysIdx = [...selectedDays].sort().join(',');
+
+        const isDuplicate = allClasses.some(c => 
+            c.class_id !== cls.class_id &&
+            c.branchId === selectedBranchId &&
+            c.className.trim().toLowerCase() === (data.className as string).trim().toLowerCase() &&
+            c.programId === selectedProgramId &&
+            c.startTime === data.startTime &&
+            c.endTime === data.endTime &&
+            normalizeDays(c.days) === newDaysIdx
+        );
+
+        if (isDuplicate) {
+            setMsg("Another class with the same name and schedule already exists.");
+            setLoading(false);
+            return;
+        }
         
         try {
             await updateClass(cls.class_id, {
@@ -1403,7 +1498,7 @@ function EditClassModal({ cls, onClose, onSuccess }: { cls: Class, onClose: () =
                 maxStudents: parseInt(data.maxStudents as string),
                 totalSessions: parseInt(data.totalSessions as string),
                 branchId: selectedBranchId,
-                programId: programId
+                programId: selectedProgramId
             });
             onSuccess();
         } catch (e) {
@@ -1440,6 +1535,14 @@ function EditClassModal({ cls, onClose, onSuccess }: { cls: Class, onClose: () =
                  </div>
                  
                  <form onSubmit={handleSubmit} className="p-8 space-y-6">
+                    {msg && (
+                        <div className="p-4 bg-rose-50 border border-rose-100 rounded-xl flex items-center gap-3 text-rose-600">
+                             <div className="w-8 h-8 rounded-lg bg-rose-100 flex items-center justify-center flex-shrink-0">
+                                <X size={16} />
+                             </div>
+                             <p className="text-sm font-bold">{msg}</p>
+                        </div>
+                    )}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-1.5">
                             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Branch</label>
@@ -1461,14 +1564,23 @@ function EditClassModal({ cls, onClose, onSuccess }: { cls: Class, onClose: () =
                             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Program</label>
                             <div className="relative">
                                 <select 
-                                    value={programId}
-                                    onChange={(e) => setProgramId(e.target.value)}
+                                    value={selectedProgramName}
+                                    onChange={(e) => {
+                                        const name = e.target.value;
+                                        setSelectedProgramName(name);
+                                        const matching = PROGRAMS.filter(p => p.name === name);
+                                        if (matching.length > 0) {
+                                            setSelectedProgramId(matching[0].id);
+                                        } else {
+                                            setSelectedProgramId("");
+                                        }
+                                    }}
                                     required 
                                     disabled={!selectedBranchId}
                                     className="w-full px-4 py-3 rounded-xl bg-slate-50 border-2 border-slate-100 text-slate-900 text-sm font-bold focus:bg-white focus:border-indigo-500 outline-none transition-all appearance-none disabled:opacity-50"
                                 >
-                                    <option value="">{selectedBranchId ? 'Select Curricula...' : 'Choose Branch First'}</option>
-                                    {filteredPrograms.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                    <option value="">{selectedBranchId ? 'Select Program...' : 'Choose Branch First'}</option>
+                                    {Array.from(new Set(PROGRAMS.map(p => p.name))).map((name: any) => <option key={name} value={name}>{name}</option>)}
                                 </select>
                                 <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 rotate-90 text-slate-400 pointer-events-none" size={16} />
                             </div>
@@ -1476,7 +1588,7 @@ function EditClassModal({ cls, onClose, onSuccess }: { cls: Class, onClose: () =
 
                         <Input label="Class Name" name="className" required defaultValue={cls.className} />
                         
-                        {/* Custom Days Dropdown */}
+                        {/* Custom Days Dropdown (Reverted) */}
                         <div className="space-y-1.5 relative">
                             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Schedule</label>
                             <div className="relative group">

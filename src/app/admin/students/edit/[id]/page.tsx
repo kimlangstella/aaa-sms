@@ -17,12 +17,14 @@ import { Branch, Student } from "@/lib/types";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { COUNTRIES } from "@/lib/constants";
+import { useAuth } from "@/lib/useAuth";
 
 export default function EditStudentPage() {
   const router = useRouter();
   const params = useParams();
   const studentId = params.id as string;
 
+  const { profile } = useAuth();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -112,7 +114,9 @@ export default function EditStudentPage() {
               // NOTE: Insurance info is NOT updated here as requested
           };
 
-          await updateStudent(studentId, studentData);
+          const actorName = profile?.name || profile?.email || 'Admin';
+          await updateStudent(studentId, studentData, actorName);
+
 
           // If status changed to Inactive or Hold, deactivate all enrollments
           const newStatus = formData.get("status") as any;

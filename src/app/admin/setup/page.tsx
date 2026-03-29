@@ -25,6 +25,8 @@ import {
   Edit,
   ChevronDown,
   Trash2,
+  Clock,
+  Layers,
 } from "lucide-react";
 import { 
   getSchoolDetails, 
@@ -58,7 +60,8 @@ function SetupContent() {
   
   const [activeTab, setActiveTab] = useState(tabParam || 'branches');
   const [showAddForm, setShowAddForm] = useState(false);
-  const [editingProgram, setEditingProgram] = useState<any>(null); // Add state for editing
+  const [editingProgram, setEditingProgram] = useState<any>(null);
+  const [editingBranch, setEditingBranch] = useState<any>(null); // State for editing branch
   const [school, setSchool] = useState<SchoolType | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
 
@@ -149,12 +152,35 @@ function SetupContent() {
               <div className="space-y-6">
                    {!hasSchool ? (
                        <SetupRequired message="Please configure your School Identity first." action={() => handleTabChange('identity')} />
-                   ) : showAddForm ? (
+                   ) : (showAddForm || editingBranch) ? (
                        <div className="max-w-3xl mx-auto">
-                            <CreateBranchForm school={school} onCancel={() => setShowAddForm(false)} />
+                            <CreateBranchForm 
+                               school={school} 
+                               initialData={editingBranch}
+                               onCancel={() => {
+                                   setShowAddForm(false);
+                                   setEditingBranch(null);
+                               }} 
+                            />
                        </div>
                    ) : (
-                       <BranchList branches={branches} enrollments={enrollments} onAdd={() => setShowAddForm(true)} />
+                       <BranchList 
+                            branches={branches} 
+                            enrollments={enrollments} 
+                            onAdd={() => setShowAddForm(true)} 
+                            onEdit={(branch: any) => setEditingBranch(branch)}
+                            onDelete={async (id: string) => {
+                                if (confirm("Are you sure you want to delete this branch? This action cannot be undone.")) {
+                                    try {
+                                        await branchService.delete(id);
+                                    } catch (e) {
+                                        console.error(e);
+                                        alert("Failed to delete branch");
+                                    }
+                                }
+                            }}
+                            role={profile?.role}
+                       />
                    )}
               </div>
           )}
@@ -248,7 +274,9 @@ function SetupRequired({ message, action }: { message: string, action: () => voi
 
 // --- Forms & Lists ---
 
-function BranchList({ branches, enrollments, onAdd }: any) {
+function BranchList({ branches, enrollments, onAdd, onEdit, onDelete, role }: any) {
+    const uniqueBranches = Array.from(new Map((branches || []).map((b: any) => [b.branch_id, b])).values());
+    
     return (
         <div className="bg-white/60 backdrop-blur-md rounded-[2.5rem] border border-white/50 shadow-sm overflow-hidden">
              <div className="px-8 py-8 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between bg-white gap-4">
@@ -275,15 +303,15 @@ function BranchList({ branches, enrollments, onAdd }: any) {
                              <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Contact</th>
                              <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Address</th>
                              <th className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest text-center">Enrollment</th>
-                             <th className="px-8 py-4"></th>
+                             <th className="px-8 py-4 text-right pr-12 text-xs font-black text-slate-400 uppercase tracking-widest">Actions</th>
                          </tr>
                      </thead>
                      <tbody className="divide-y divide-slate-50">
-                          {branches.length === 0 ? (
+                          {uniqueBranches.length === 0 ? (
                               <tr>
                                   <td colSpan={5} className="px-8 py-12 text-center text-slate-400 font-medium">No branches registered yet.</td>
                               </tr>
-                          ) : branches.map((b: any) => (
+                          ) : uniqueBranches.map((b: any) => (
                               <tr key={b.branch_id} className="hover:bg-blue-50/30 transition-colors group">
                                   <td className="px-8 py-5 font-bold text-slate-700">{b.branch_name}</td>
                                   <td className="px-8 py-5 text-sm text-slate-500">{b.phone}</td>
@@ -294,10 +322,25 @@ function BranchList({ branches, enrollments, onAdd }: any) {
                                           {enrollments?.length > 0 ? 'Active' : '0'} 
                                       </span>
                                   </td>
-                                  <td className="px-8 py-5 text-right">
-                                      <button className="p-2 text-slate-300 hover:text-blue-600 transition-colors">
-                                          <Settings size={16} />
-                                      </button>
+                                  <td className="px-8 py-5 text-right pr-8">
+                                      <div className="flex items-center justify-end gap-1 transition-all duration-300">
+                                          <button 
+                                              onClick={() => onEdit(b)}
+                                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                              title="Edit Branch"
+                                          >
+                                              <Edit size={16} />
+                                          </button>
+                                          {role === 'superAdmin' && (
+                                              <button 
+                                                  onClick={() => onDelete(b.branch_id)}
+                                                  className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                                                  title="Delete Branch"
+                                              >
+                                                  <Trash2 size={16} />
+                                              </button>
+                                          )}
+                                      </div>
                                   </td>
                               </tr>
                           ))}
@@ -318,6 +361,7 @@ function ProgramList({ branches, classes, enrollments, inventoryItems, onAdd, on
     }, []);
 
     const filteredPrograms = programs.filter(p => !selectedBranch || p.branchId === selectedBranch);
+    const uniqueBranches = Array.from(new Map((branches || []).map((b: any) => [b.branch_id, b])).values());
 
     return (
         <div className="bg-white rounded-3xl border border-slate-100 shadow-xl shadow-slate-200/40 overflow-hidden">
@@ -333,7 +377,6 @@ function ProgramList({ branches, classes, enrollments, inventoryItems, onAdd, on
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-center gap-4">
-                    {/* Branch Filter */}
                     <div className="relative group w-full sm:w-64">
                         <select 
                             value={selectedBranch}
@@ -341,7 +384,7 @@ function ProgramList({ branches, classes, enrollments, inventoryItems, onAdd, on
                             className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all cursor-pointer appearance-none pr-10"
                         >
                             <option value="">All Branches</option>
-                            {branches.map((b: any) => (
+                            {uniqueBranches.map((b: any) => (
                                 <option key={b.branch_id} value={b.branch_id}>{b.branch_name}</option>
                             ))}
                         </select>
@@ -365,87 +408,134 @@ function ProgramList({ branches, classes, enrollments, inventoryItems, onAdd, on
                            </div>
                            <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">No programs found matching filters</p>
                       </div>
-                 ) : filteredPrograms.map(p => (
-                      <div key={p.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group relative">
-                           <div className="flex justify-between items-start mb-4">
-                               <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors duration-500">
-                                   <GraduationCap size={24} />
-                               </div>
-                               <div className="flex items-center gap-1">
-                                   <button 
-                                       onClick={() => onEdit(p)}
-                                       className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                                       title="Edit Program"
-                                   >
-                                       <Edit size={16} />
-                                   </button>
-                                   {role === 'superAdmin' && (
-                                       <button 
-                                           onClick={() => {
-                                               if (confirm("Are you sure you want to delete this program?")) {
-                                                   onDelete(p.id);
-                                               }
-                                           }}
-                                           className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
-                                           title="Delete Program"
-                                       >
-                                           <Trash2 size={16} />
-                                       </button>
-                                   )}
-                               </div>
-                           </div>
+                 ) : (
+                      (() => {
+                      const grouped: { [key: string]: any[] } = {};
+                      filteredPrograms.forEach(p => {
+                           const key = `${p.name}-${p.price}`;
+                           if (!grouped[key]) grouped[key] = [];
+                           grouped[key].push(p);
+                       });
 
-                           <div className="space-y-1 mb-4">
-                                <div className="flex justify-between items-center">
-                                     <h3 className="text-lg font-black text-slate-800 tracking-tight">{p.name}</h3>
-                                     <span className="text-xl font-black text-slate-900">${p.price}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                     <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">
-                                         {branches.find((b: any) => b.branch_id === p.branchId)?.branch_name || 'Across Branches'}
-                                     </span>
-                                </div>
-                           </div>
+                      return Object.values(grouped).map((group: any[]) => {
+                          const p = group[0];
+                          const branchIds = Array.from(new Set(group.map(i => i.branchId)));
 
-                           <div className="flex items-center gap-4">
-                               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 text-slate-500 text-[10px] font-black uppercase tracking-widest">
-                                    <Calendar size={12} className="text-indigo-400" />
-                                    <span>{p.durationSessions} Sessions</span>
-                               </div>
-                                {p.session_fee && (
-                                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase tracking-widest leading-none">
-                                        <span>${p.session_fee}/S</span>
-                                   </div>
-                                )}
-                                {p.needs_inventory && (
-                                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-600 text-[10px] font-black uppercase tracking-widest" title="Needs Uniforms/Books">
-                                        <span>
-                                            {p.inventoryItemIds?.length 
-                                                ? p.inventoryItemIds.map((id: string) => inventoryItems?.find((i: any) => i.id === id)?.name).filter(Boolean).join(', ')
-                                                : 'Uniforms/Books'}
-                                        </span>
-                                    </div>
-                                )}
-                           </div>
-                      </div>
-                 ))}
-                 
-                 {/* Add New Card (Alternative to Top Button) */}
-                 <button onClick={onAdd} className="bg-white p-6 rounded-3xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400 hover:border-indigo-300 hover:text-indigo-500 transition-all min-h-[160px]">
-                      <Plus size={32} className="mb-2" />
-                      <span className="font-bold text-sm">Add Another Program</span>
-                 </button>
+                          return (
+                              <div key={`${p.name}-${p.id}`} className="bg-white p-6 rounded-3xl border-2 border-slate-50 hover:border-indigo-100 hover:shadow-xl hover:shadow-indigo-50/50 transition-all duration-300 group animate-in zoom-in-95 duration-500 relative">
+                                  <div className="flex justify-between items-start mb-4">
+                                      <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-500 flex items-center justify-center group-hover:bg-indigo-500 group-hover:text-white transition-all duration-500">
+                                          <GraduationCap size={20} className="font-bold text-indigo-500 group-hover:text-white" />
+                                      </div>
+                                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-300">
+                                          <button 
+                                              onClick={() => onEdit({ ...p, allBranchIds: branchIds })}
+                                              className="p-2 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                              title="Edit Program"
+                                          >
+                                              <Edit size={16} />
+                                          </button>
+                                          {role === 'superAdmin' && (
+                                              <button 
+                                                  onClick={() => {
+                                                      if (confirm(`Are you sure you want to delete "${p.name}" from all ${group.length} branches?`)) {
+                                                          group.forEach(i => onDelete(i.id));
+                                                      }
+                                                  }}
+                                                  className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                                                  title="Delete from all branches"
+                                              >
+                                                  <Trash2 size={16} />
+                                              </button>
+                                          )}
+                                      </div>
+                                  </div>
+
+                                  <div className="space-y-1 mb-4">
+                                      <div className="flex justify-between items-center">
+                                          <h3 className="text-lg font-black text-slate-800 tracking-tight">{p.name}</h3>
+                                          {(!p.variants || p.variants.length === 0) && (
+                                              <span className="text-xl font-black text-slate-900">${p.price}</span>
+                                          )}
+                                      </div>
+                                      
+                                      <div className="flex flex-wrap gap-1 mt-2">
+                                          {branchIds.map(id => {
+                                              const branch = uniqueBranches.find((b: any) => b.branch_id.toString() === id?.toString()) as any;
+                                              return (
+                                                  <span key={`${p.name}-${id}`} className="px-2 py-0.5 rounded-full bg-slate-50 text-slate-400 text-[8px] font-black uppercase tracking-widest border border-slate-100">
+                                                      {branch?.branch_name || '??'}
+                                                  </span>
+                                              );
+                                          })}
+                                      </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-4">
+                                      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 text-slate-500 text-[10px] font-black uppercase tracking-widest">
+                                            <Calendar size={12} className="text-indigo-400" />
+                                            <span>{p.durationSessions} Sessions</span>
+                                      </div>
+                                      {(() => {
+                                          if (p.variants && p.variants.length > 0) return null;
+                                          const fee = p.session_fee || (p.price && p.durationSessions ? (Number(p.price) / Number(p.durationSessions)).toFixed(2) : null);
+                                          return fee ? (
+                                              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase tracking-widest leading-none">
+                                                  <span>${fee}/S</span>
+                                              </div>
+                                          ) : null;
+                                      })()}
+                                      {p.needs_inventory && (
+                                          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-600 text-[10px] font-black uppercase tracking-widest" title="Needs Uniforms/Books">
+                                              <span>Mats</span>
+                                          </div>
+                                      )}
+                                  </div>
+
+                                  {p.variants?.length > 0 && (
+                                      <div className="mt-4 pt-4 border-t border-slate-50">
+                                          <div className="flex flex-wrap gap-2">
+                                              {Array.from(new Map((p.variants || []).map((v: any) => [v.id, v])).values()).slice(0, 3).map((v: any, vIdx: number) => (
+                                                  <span key={`${v.id}-${vIdx}`} className="px-2 py-0.5 rounded-md bg-indigo-50/50 text-indigo-500 text-[10px] font-bold border border-indigo-100/50">
+                                                      {v.label} {v.time ? `(${v.time})` : ''}
+                                                  </span>
+                                              ))}
+                                              {p.variants.length > 3 && (
+                                                  <span className="px-2 py-0.5 rounded-md bg-slate-50 text-slate-400 text-[10px] font-bold">
+                                                      +{p.variants.length - 3} more
+                                                  </span>
+                                              )}
+                                          </div>
+                                      </div>
+                                  )}
+                              </div>
+                          );
+                      });
+                      })()
+                 )}
+
+                  <button onClick={onAdd} className="bg-white p-6 rounded-3xl border-2 border-dashed border-slate-100 flex flex-col items-center justify-center text-slate-300 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50/30 transition-all min-h-[160px] group">
+                       <div className="w-12 h-12 rounded-full border-2 border-dashed border-slate-100 flex items-center justify-center mb-3 group-hover:border-indigo-300 transition-colors">
+                           <Plus size={24} />
+                       </div>
+                       <span className="font-black text-[10px] uppercase tracking-widest">Add Program</span>
+                  </button>
             </div>
         </div>
     )
 }
 
 function ProgramForm({ branches, initialData, onCancel, lastSelectedBranch, setLastSelectedBranch, inventoryItems, role }: any) {
+    const uniqueBranches = Array.from(new Map((branches || []).map((b: any) => [b.branch_id, b])).values());
     const [submitting, setSubmitting] = useState(false);
     const [needsInventory, setNeedsInventory] = useState(initialData?.needs_inventory || false);
     const [addons, setAddons] = useState<any[]>([]);
+    const [variants, setVariants] = useState<any[]>(initialData?.variants || []);
     const [deletedAddonIds, setDeletedAddonIds] = useState<string[]>([]);
     const [programName, setProgramName] = useState(initialData?.name || "");
+    const [selectedBranchIds, setSelectedBranchIds] = useState<string[]>(
+        initialData?.allBranchIds ? initialData.allBranchIds : (initialData?.branchId ? [initialData.branchId.toString()] : (lastSelectedBranch ? [lastSelectedBranch] : (uniqueBranches.length > 0 ? [(uniqueBranches[0] as any).branch_id] : [])))
+    );
 
     useEffect(() => {
         if (initialData?.id) {
@@ -486,6 +576,124 @@ function ProgramForm({ branches, initialData, onCancel, lastSelectedBranch, setL
         setAddons(newAddons);
     };
 
+    const handleAddVariant = () => {
+        setVariants([...variants, { id: Date.now().toString(), label: '', price: 0 }]);
+    };
+
+    const handleRemoveVariant = (index: number) => {
+        setVariants(variants.filter((_, i) => i !== index));
+    };
+
+    const handleVariantUpdate = (index: number, updates: any) => {
+        const newVariants = [...variants];
+        newVariants[index] = { ...newVariants[index], ...updates };
+        setVariants(newVariants);
+    };
+
+    // Matrix Logic
+    const COMMON_DURATIONS = ["30mn", "45mn", "1h", "1.5h", "2h"];
+    
+    // Group variants by label for the matrix view
+    const [groups, setGroups] = useState<any[]>(() => {
+        const initialGroups: any[] = [];
+        const vars = initialData?.variants || [];
+        const map = new Map();
+        
+        vars.forEach((v: any) => {
+            if (!map.has(v.label)) map.set(v.label, []);
+            map.get(v.label).push(v);
+        });
+        
+        map.forEach((items, label) => {
+            initialGroups.push({
+                id: Date.now() + Math.random(),
+                name: label,
+                options: items.map((i: any) => ({ time: i.time, price: i.price }))
+            });
+        });
+        
+        return initialGroups;
+    });
+
+    const handleAddGroup = () => {
+        setGroups([...groups, { id: Date.now(), name: "", options: [] }]);
+    };
+
+    const handleRemoveGroup = (groupId: any) => {
+        setGroups(groups.filter(g => g.id !== groupId));
+    };
+
+    const updateGroupName = (groupId: any, name: string) => {
+        setGroups(groups.map(g => g.id === groupId ? { ...g, name } : g));
+    };
+
+    const toggleOption = (groupId: any, time: string) => {
+        setGroups(groups.map(g => {
+            if (g.id === groupId) {
+                const exists = g.options.find((o: any) => o.time === time);
+                if (exists) {
+                    return { ...g, options: g.options.filter((o: any) => o.time !== time) };
+                } else {
+                    return { ...g, options: [...g.options, { time, price: 0 }] };
+                }
+            }
+            return g;
+        }));
+    };
+
+    const updateOptionPrice = (groupId: any, time: string, price: any) => {
+        setGroups(groups.map(g => {
+            if (g.id === groupId) {
+                return {
+                    ...g,
+                    options: g.options.map((o: any) => o.time === time ? { ...o, price } : o)
+                };
+            }
+            return g;
+        }));
+    };
+
+    const [formState, setFormState] = useState({
+        price: initialData?.price || "",
+        durationSessions: initialData?.durationSessions || 11,
+        session_fee: initialData?.session_fee || ""
+    });
+
+    const handlePriceOrSessionsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value } = e.target;
+        setFormState(prev => {
+            const newState = { ...prev, [name]: value };
+            if (name === 'price' || name === 'durationSessions') {
+                const price = Number(name === 'price' ? value : prev.price);
+                const sessions = Number(name === 'durationSessions' ? value : prev.durationSessions);
+                if (price > 0 && sessions > 0) {
+                    newState.session_fee = (price / sessions).toFixed(2);
+                }
+            }
+            return newState;
+        });
+    };
+
+    const toggleBranch = (branchId: string) => {
+        // If editing, always keep the initial branch selected
+        if (initialData && branchId === initialData.branchId.toString()) return;
+
+        if (selectedBranchIds.includes(branchId)) {
+            setSelectedBranchIds(selectedBranchIds.filter(id => id !== branchId));
+        } else {
+            setSelectedBranchIds([...selectedBranchIds, branchId]);
+        }
+    };
+
+    const selectAllBranches = () => {
+        if (selectedBranchIds.length === uniqueBranches.length) {
+            // If editing, keep the initial branch
+            setSelectedBranchIds(initialData ? [initialData.branchId.toString()] : []);
+        } else {
+            setSelectedBranchIds(uniqueBranches.map((b: any) => b.branch_id.toString()));
+        }
+    };
+
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
         if (submitting) return;
@@ -498,21 +706,55 @@ function ProgramForm({ branches, initialData, onCancel, lastSelectedBranch, setL
             const validAddons = addons.filter(a => a.itemId);
             const hasAddons = validAddons.length > 0;
             
+            // Convert Matrix Groups back to Variants
+            const matrixVariants: any[] = [];
+            groups.forEach(g => {
+                if (g.name) {
+                    g.options.forEach((opt: any) => {
+                        matrixVariants.push({
+                            id: `${g.name}-${opt.time}-${Date.now()}`,
+                            label: g.name,
+                            time: opt.time,
+                            price: Number(opt.price)
+                        });
+                    });
+                }
+            });
+
             data.needs_inventory = hasAddons;
             data.inventoryItemIds = hasAddons ? validAddons.map(a => a.itemId) : [];
+            data.variants = matrixVariants.length > 0 ? matrixVariants : variants.filter(v => v.label && v.price > 0);
             
             // Save sticky branch
-            if (setLastSelectedBranch && data.branchId) {
-                setLastSelectedBranch(data.branchId.toString());
+            if (setLastSelectedBranch && selectedBranchIds.length > 0) {
+                setLastSelectedBranch(selectedBranchIds[0]);
             }
 
             let programId = initialData?.id;
 
             if (initialData) {
+                // Update the current program
                 await programService.update(initialData.id, data);
+                
+                // Create for any NEWLY selected branches (Cloning)
+                const newBranches = selectedBranchIds.filter(id => id !== initialData.branchId.toString());
+                if (newBranches.length > 0) {
+                    const cloningPromises = newBranches.map(async branchId => {
+                        const branchData = { ...data, branchId };
+                        return programService.create(branchData);
+                    });
+                    await Promise.all(cloningPromises);
+                }
             } else {
-                const newProgramId = await programService.create(data as any);
-                programId = newProgramId;
+                // Create for each selected branch
+                const creationPromises = selectedBranchIds.map(async branchId => {
+                    const branchData = { ...data, branchId };
+                    const newProgramId = await programService.create(branchData);
+                    // If this is the first program being created, use its ID for addon sync
+                    if (!programId) programId = newProgramId;
+                    return newProgramId;
+                });
+                await Promise.all(creationPromises);
             }
 
             // Sync Addons
@@ -537,7 +779,12 @@ function ProgramForm({ branches, initialData, onCancel, lastSelectedBranch, setL
                     if (addon.id) {
                         await updateProgramAddon(addon.id, addon);
                     } else {
-                        await addProgramAddon({ ...addon, programId } as any);
+                        // Ensure programId is available for new addons
+                        if (programId) {
+                            await addProgramAddon({ ...addon, programId } as any);
+                        } else {
+                            console.warn("Program ID not available for new addon creation.");
+                        }
                     }
                 }
             }
@@ -559,105 +806,194 @@ function ProgramForm({ branches, initialData, onCancel, lastSelectedBranch, setL
             submitLabel={submitting ? (<Loader2 className="animate-spin" />) : (initialData ? "Update" : "Create")}
         >
              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                 <div className="space-y-2">
-                     <label className="text-xs font-bold text-slate-500 ml-1 uppercase">Branch Name</label>
-                     <select 
-                        name="branchId" 
-                        required 
-                        defaultValue={initialData?.branchId || lastSelectedBranch}
-                        className="w-full px-5 py-4 rounded-xl bg-slate-50 border-2 border-transparent focus:border-blue-500/20 focus:bg-white outline-none font-bold text-slate-700 transition-all"
-                    >
-                         {branches.map((b: any) => <option key={b.branch_id} value={b.branch_id}>{b.branch_name}</option>)}
-                     </select>
-                 </div>
+                  <div className="space-y-3 sm:col-span-2">
+                      <div className="flex items-center justify-between ml-1">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                              {initialData ? 'Clone to Other Branches' : 'Available in Branches'}
+                          </label>
+                          <button 
+                              type="button" 
+                              onClick={selectAllBranches}
+                              className="text-[10px] font-black text-indigo-500 uppercase tracking-widest hover:text-indigo-600 transition-colors"
+                          >
+                              {selectedBranchIds.length === uniqueBranches.length ? 'Deselect All' : 'Select All Branches'}
+                          </button>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                          {uniqueBranches.map((b: any) => {
+                              const isInitial = initialData && b.branch_id.toString() === initialData.branchId.toString();
+                              return (
+                                  <div 
+                                      key={b.branch_id}
+                                      onClick={() => toggleBranch(b.branch_id.toString())}
+                                      className={`p-3 rounded-2xl border-2 transition-all cursor-pointer flex items-center gap-2 group ${
+                                          selectedBranchIds.includes(b.branch_id.toString())
+                                              ? 'border-indigo-500 bg-indigo-50/30' 
+                                              : 'border-slate-50 bg-slate-50 opacity-60 hover:opacity-100 hover:border-slate-200'
+                                      } ${isInitial ? 'cursor-default' : ''}`}
+                                  >
+                                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all ${
+                                          selectedBranchIds.includes(b.branch_id.toString()) ? 'border-indigo-500 bg-indigo-500' : 'border-slate-300 bg-white'
+                                      }`}>
+                                          {selectedBranchIds.includes(b.branch_id.toString()) && <div className="w-1.5 h-1.5 rounded-full bg-white animate-in zoom-in-50 duration-200" />}
+                                      </div>
+                                      <span className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${selectedBranchIds.includes(b.branch_id.toString()) ? 'text-indigo-600' : 'text-slate-500'}`}>
+                                          {b.branch_name}
+                                          {isInitial && <span className="ml-1 text-[8px] opacity-70">(Current)</span>}
+                                      </span>
+                                  </div>
+                              );
+                          })}
+                      </div>
+                  </div>
                  <InputGroup 
                     label="Program Name" 
                     name="name" 
                     required 
                     placeholder="e.g. General English" 
-                    defaultValue={initialData?.name} 
-                    onChange={(e: any) => setProgramName(e.target.value)}
-                 />
-                 <InputGroup label="Sessions" name="durationSessions" type="number" required defaultValue={initialData?.durationSessions || 11} />
-                 <div className="grid grid-cols-2 gap-4">
-                    <InputGroup label="Tuition Fee ($)" name="price" type="number" required placeholder="Total" defaultValue={initialData?.price} step="0.01" />
-                    <InputGroup label="Session Fee ($)" name="session_fee" type="number" placeholder="Fee per session" defaultValue={initialData?.session_fee} step="0.01" />
-                 </div>
-                 <div className="sm:col-span-2 pt-4 border-t border-slate-100 mt-2">
-                         <div className="flex items-center justify-between mb-4">
-                             <div>
-                                 <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
-                                     <BookOpen size={16} className="text-indigo-600" /> Program Add-ons & Materials
-                                 </label>
-                                 <p className="text-xs text-slate-500 mt-0.5">Configure additional items (like uniforms or books) required or optional for this program.</p>
-                             </div>
-                             <button type="button" onClick={handleToggleItem} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors shadow-sm">
-                                 <Plus size={16} /> Add Item
-                             </button>
-                         </div>
-                         
-                         {addons.length === 0 ? (
-                             <div className="p-8 text-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 text-slate-500 text-sm font-bold">
-                                 No add-ons configured. Click "Add Item" to include materials.
-                             </div>
-                         ) : (
-                             <div className="space-y-3">
-                                 {addons.map((addon, index) => {
-                                     const selectedItem = inventoryItems?.find((i: any) => i.id === addon.itemId);
-                                     return (
-                                         <div key={index} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-xl border border-slate-200 bg-white shadow-sm hover:border-indigo-200 hover:shadow-md transition-all group">
-                                             <div className="flex-1 min-w-[200px]">
-                                                 <select 
-                                                     value={addon.itemId} 
-                                                     onChange={(e) => handleAddonUpdate(index, { itemId: e.target.value })}
-                                                     className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-bold bg-slate-50 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
-                                                 >
-                                                     <option value="" disabled>Select Item...</option>
-                                                     {inventoryItems?.map((item: any) => (
-                                                         <option key={item.id} value={item.id}>{item.name} {item.price ? `($${item.price})` : ''}</option>
-                                                     ))}
-                                                 </select>
-                                             </div>
-                                             
-                                             <div className="flex items-center gap-3 shrink-0">
-                                                 {addon.itemId && (
-                                                     <label className="flex items-center gap-2 cursor-pointer group/opt bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 hover:border-indigo-200 transition-all">
-                                                         <div className="relative flex items-center justify-center">
-                                                             <input 
-                                                                 type="checkbox"
-                                                                 checked={addon.isOptional}
-                                                                 onChange={(e) => handleAddonUpdate(index, { isOptional: e.target.checked })}
-                                                                 className="peer sr-only"
-                                                             />
-                                                             <div className="w-4 h-4 rounded border-2 border-slate-300 peer-checked:bg-indigo-600 peer-checked:border-indigo-600 transition-all flex items-center justify-center">
-                                                                <Check size={12} className="text-white opacity-0 peer-checked:opacity-100" strokeWidth={3} />
-                                                             </div>
-                                                         </div>
-                                                         <span className="text-xs font-bold text-slate-600 group-hover/opt:text-indigo-700 transition-colors">Optional</span>
-                                                     </label>
-                                                 )}
-                                                 
-                                                 {role === 'superAdmin' && (
-                                                     <button 
-                                                        type="button" 
-                                                        onClick={() => handleRemoveItem(index)} 
-                                                        className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 border border-transparent hover:border-rose-100 rounded-lg transition-all"
-                                                        title="Remove Item"
-                                                    >
-                                                         <Trash2 size={16} />
-                                                     </button>
-                                                 )}
-                                             </div>
-                                         </div>
-                                     );
-                                 })}
-                             </div>
-                         )}
-                     </div>
-             </div>
-        </CardForm>
-    )
-}
+                    defaultValue={initialData?.name}                     onChange={(e: any) => setProgramName(e.target.value)}
+                    className="sm:col-span-1"
+                  />
+                  <InputGroup 
+                    label="Sessions" 
+                    name="durationSessions" 
+                    type="number" 
+                    required 
+                    defaultValue={formState.durationSessions} 
+                    onChange={handlePriceOrSessionsChange}
+                  />
+                   <div className={`grid grid-cols-2 gap-4 transition-all duration-500 overflow-hidden ${groups.length > 0 ? 'max-h-0 opacity-0 mb-0' : 'max-h-40 opacity-100 mb-6'}`}>
+                     <InputGroup 
+                        label="Tuition Fee ($)" 
+                        name="price" 
+                        type="number" 
+                        placeholder="Total" 
+                        defaultValue={formState.price} 
+                        step="0.01" 
+                        onChange={handlePriceOrSessionsChange}
+                     />
+                     <InputGroup 
+                        label="Session Fee ($)" 
+                        name="session_fee" 
+                        type="number" 
+                        placeholder="Fee per session" 
+                        key={formState.session_fee} // Key forces input refresh when auto-calculated
+                        defaultValue={formState.session_fee} 
+                        step="0.01" 
+                     />
+                  </div>
+               </div>
+
+                {/* Sub-Programs Matrix View */}
+                <div className="mt-10 space-y-6">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                                <Layers size={20} />
+                            </div>
+                            <div>
+                                <h4 className="text-sm font-black text-slate-800 tracking-tight">Multi-Option Setup</h4>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Programs & durations</p>
+                            </div>
+                        </div>
+                        <button 
+                            type="button"
+                            onClick={handleAddGroup}
+                            className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-indigo-700 transition-all active:scale-95 flex items-center gap-2 shadow-lg shadow-indigo-100"
+                        >
+                            <Plus size={14} />
+                            <span>Add Program</span>
+                        </button>
+                    </div>
+
+                    {groups.length === 0 ? (
+                        <div 
+                            onClick={handleAddGroup}
+                            className="py-12 border-2 border-dashed border-slate-100 rounded-[2rem] flex flex-col items-center justify-center text-slate-400 hover:border-indigo-200 hover:bg-indigo-50/20 transition-all cursor-pointer group"
+                        >
+                            <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center mb-3 group-hover:bg-indigo-50 group-hover:text-indigo-500 transition-colors">
+                                <Layers size={20} />
+                            </div>
+                            <p className="text-sm font-bold text-slate-400 group-hover:text-indigo-600 transition-colors">Click to add Sub-Programs (e.g. Guitar, Piano)</p>
+                            <p className="text-[10px] font-medium text-slate-300 mt-1">Easily select multiple durations and prices for each program</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-6">
+                            {groups.map((group) => (
+                                <div key={group.id} className="bg-white p-6 rounded-[2rem] border-2 border-slate-50 space-y-6 shadow-sm hover:shadow-md hover:border-indigo-100 transition-all animate-in slide-in-from-bottom-2 duration-300 relative group/card">
+                                    <button 
+                                        type="button"
+                                        onClick={() => handleRemoveGroup(group.id)}
+                                        className="absolute top-6 right-6 p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+
+                                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                                        {/* Program Name */}
+                                        <div className="lg:col-span-4">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Program Name</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="e.g. Guitar"
+                                                value={group.name}
+                                                onChange={(e) => updateGroupName(group.id, e.target.value)}
+                                                className="w-full px-5 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-indigo-500/20 focus:bg-white outline-none font-bold text-slate-700 placeholder:text-slate-300 transition-all"
+                                            />
+                                        </div>
+
+                                        {/* Durations Matrix */}
+                                        <div className="lg:col-span-8 space-y-4">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 block">Toggle Durations & Set Prices</label>
+                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                                {COMMON_DURATIONS.map(time => {
+                                                    const option = group.options.find((o: any) => o.time === time);
+                                                    return (
+                                                        <div 
+                                                            key={time}
+                                                            className={`p-1 rounded-2xl transition-all border-2 ${
+                                                                option ? 'border-indigo-500 bg-white shadow-sm' : 'border-slate-50 bg-slate-50/50 grayscale'
+                                                            }`}
+                                                        >
+                                                            <div 
+                                                                onClick={() => toggleOption(group.id, time)}
+                                                                className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all flex items-center justify-between ${
+                                                                    option ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'
+                                                                }`}
+                                                            >
+                                                                <span>{time}</span>
+                                                                {option && <div className="w-4 h-4 rounded-full bg-indigo-600 flex items-center justify-center"><Plus size={10} className="text-white rotate-45" /></div>}
+                                                            </div>
+                                                            
+                                                            {option && (
+                                                                <div className="px-3 pb-3 pt-1 border-t border-slate-50 mt-1 animate-in slide-in-from-top-1 duration-200">
+                                                                    <div className="relative">
+                                                                        <span className="absolute left-0 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-300">$</span>
+                                                                        <input 
+                                                                            type="number"
+                                                                            step="0.01"
+                                                                            placeholder="Price"
+                                                                            value={option.price || ""}
+                                                                            onChange={(e) => updateOptionPrice(group.id, time, e.target.value)}
+                                                                            className="w-full pl-4 py-1.5 bg-transparent outline-none text-sm font-black text-slate-700"
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+          </CardForm>
+     )
+ }
 
 function SchoolSettingsForm({ school }: any) {
     const [submitting, setSubmitting] = useState(false);
@@ -817,21 +1153,42 @@ function PreviewItem({ icon, label, value, dashed }: any) {
     )
 }
 
-function CreateBranchForm({ school, onCancel }: any) {
+function CreateBranchForm({ school, onCancel, initialData }: any) {
+    const [submitting, setSubmitting] = useState(false);
+
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
-        // same logic as before, simpler for brevity in this rewrite
-        const data = Object.fromEntries(new FormData(e.currentTarget));
-        await branchService.create({ ...data, school_id: school.school_id } as any);
-        onCancel();
+        if (submitting) return;
+        setSubmitting(true);
+        try {
+            const formData = new FormData(e.currentTarget);
+            const data: any = Object.fromEntries(formData);
+            
+            if (initialData?.branch_id) {
+                await branchService.update(initialData.branch_id, data);
+            } else {
+                await branchService.create({ ...data, school_id: school.school_id } as any);
+            }
+            onCancel();
+        } catch (error) {
+            console.error(error);
+            alert("Failed to save branch");
+        } finally {
+            setSubmitting(false);
+        }
     }
 
     return (
-        <CardForm title="New Branch Campus" onCancel={onCancel} onSubmit={handleSubmit}>
+        <CardForm 
+            title={initialData ? "Edit Branch Campus" : "New Branch Campus"} 
+            onCancel={onCancel} 
+            onSubmit={handleSubmit}
+            submitLabel={submitting ? (<Loader2 className="animate-spin" />) : (initialData ? "Update" : "Create")}
+        >
              <div className="space-y-6">
-                 <InputGroup label="Branch Name" name="branch_name" required placeholder="e.g. North Campus" />
-                 <InputGroup label="Phone" name="phone" required placeholder="Contact Number" />
-                 <InputGroup label="Address" name="address" required placeholder="Location Address" />
+                 <InputGroup label="Branch Name" name="branch_name" required placeholder="e.g. North Campus" defaultValue={initialData?.branch_name} />
+                 <InputGroup label="Phone" name="phone" required placeholder="Contact Number" defaultValue={initialData?.phone} />
+                 <InputGroup label="Address" name="address" required placeholder="Location Address" defaultValue={initialData?.address} />
              </div>
         </CardForm>
     )

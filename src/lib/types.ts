@@ -52,6 +52,14 @@ export interface Program {
     branchId?: string;
     needs_inventory?: boolean;
     inventoryItemIds?: string[];
+    variants?: ProgramVariant[];
+}
+
+export interface ProgramVariant {
+    id: string;
+    label: string; // e.g. "Guitar", "Violin"
+    price: number;
+    time?: string; // e.g. "30mn", "1h"
 }
 
 export interface Class {
@@ -140,6 +148,7 @@ export interface Enrollment {
     programId?: string;
 
     enrollment_status: EnrollmentStatus; // Active, Hold, Completed, Dropped
+    selectedVariantId?: string;
 
     // Enrollment details
     start_session: number; // Session number (1-12)

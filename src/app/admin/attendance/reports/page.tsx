@@ -265,7 +265,7 @@ export default function AttendanceReportsPage() {
             const studentAttendance = attendanceRecords.filter(r => r.enrollment_id === enrollment.enrollment_id);
             const enrolledClass = classes.find(c => c.class_id === enrollment.class_id); // Lookup class
             
-            const totalSessions = enrolledClass?.totalSessions || 12;
+            const totalSessions = enrolledClass?.totalSessions || 11;
             const presents = studentAttendance.filter(r => r.status === 'Present').length;
             const absents = studentAttendance.filter(r => r.status === 'Absent').length;
   /*          const leaves = studentAttendance.filter(r => r.status === 'Permission').length; */

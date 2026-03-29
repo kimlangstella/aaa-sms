@@ -2,19 +2,31 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, BookOpen, Loader2, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, BookOpen, Loader2, CheckCircle2, Trash2 } from "lucide-react";
 import { Term } from "@/lib/types";
 import { termService } from "@/services/termService";
 import { programService } from "@/services/programService";
+import { useAuth } from "@/lib/useAuth";
 
 export default function ProgramsPage() {
     const router = useRouter();
     const params = useParams();
     const termId = params.term_id as string;
 
+    const { isSuperAdmin } = useAuth();
     const [term, setTerm] = useState<Term | null>(null);
     const [programs, setPrograms] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+
+    const handleDeleteProgram = async (id: string, name: string) => {
+        if (!confirm(`Are you sure you want to delete "${name}"? This action cannot be undone.`)) return;
+        try {
+            await programService.delete(id);
+        } catch (error) {
+            console.error("Error deleting program:", error);
+            alert("Failed to delete program. It may have associated classes or enrollments.");
+        }
+    };
 
     useEffect(() => {
         const fetchData = async () => {
@@ -99,8 +111,21 @@ export default function ProgramsPage() {
                                     </div>
                                 </div>
 
+                                {isSuperAdmin && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteProgram(program.id, program.name);
+                                        }}
+                                        className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all absolute top-4 right-4 z-10"
+                                        title="Delete Program"
+                                    >
+                                        <Trash2 size={18} />
+                                    </button>
+                                )}
+
                                 {/* Program Name */}
-                                <div className="text-center mb-3">
+                                <div className="text-center group-hover:translate-y-[-4px] transition-transform duration-300">
                                     <h3 className="text-lg font-black text-slate-900 mb-1">{program.name}</h3>
                                     {program.description && (
                                         <p className="text-xs text-slate-500 line-clamp-2">{program.description}</p>
